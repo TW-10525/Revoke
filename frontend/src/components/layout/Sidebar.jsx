@@ -34,7 +34,6 @@ const Sidebar = ({ user, onLogout }) => {
     } else {
       return [
         { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-        { path: '/check-in', icon: UserCheck, label: 'Check-In/Out' },
         { path: '/schedule', icon: CalendarDays, label: 'My Schedule' },
         { path: '/requests', icon: ClipboardList, label: 'Requests & Approvals' },
         { path: '/leaves', icon: UserCheck, label: 'Leave Requests' },

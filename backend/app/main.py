@@ -316,6 +316,9 @@ async def get_department_details(
     )
     employees = emp_result.scalars().all()
     
+    # Get today's date
+    today = date.today()
+    
     # Get latest attendance for each employee
     employee_list = []
     for emp in employees:
@@ -327,12 +330,32 @@ async def get_department_details(
         )
         latest_checkin = checkin_result.scalar_one_or_none()
         
+        # Get today's schedule for assigned shift time
+        schedule_result = await db.execute(
+            select(Schedule).filter(
+                Schedule.employee_id == emp.id,
+                Schedule.date == today
+            )
+        )
+        today_schedule = schedule_result.scalar_one_or_none()
+        
+        # Calculate total hours assigned
+        total_hrs_assigned = None
+        if today_schedule and today_schedule.start_time and today_schedule.end_time:
+            start_h, start_m = map(int, today_schedule.start_time.split(':'))
+            end_h, end_m = map(int, today_schedule.end_time.split(':'))
+            start_decimal = start_h + start_m / 60
+            end_decimal = end_h + end_m / 60
+            total_hrs_assigned = end_decimal - start_decimal if end_decimal > start_decimal else 24 - start_decimal + end_decimal
+        
         employee_list.append({
             "id": emp.id,
             "employee_id": emp.employee_id,
             "first_name": emp.first_name,
             "last_name": emp.last_name,
             "email": emp.email,
+            "assigned_shift_time": f"{today_schedule.start_time} - {today_schedule.end_time}" if today_schedule and today_schedule.start_time and today_schedule.end_time else None,
+            "total_hrs_assigned": f"{total_hrs_assigned:.2f}" if total_hrs_assigned else None,
             "latest_check_in": latest_checkin.check_in_time if latest_checkin else None,
             "latest_check_out": latest_checkin.check_out_time if latest_checkin else None
         })
@@ -1150,7 +1173,7 @@ async def check_out(
         result = await db.execute(
             select(CheckInOut).options(
                 selectinload(CheckInOut.employee).selectinload(Employee.user),
-                selectinload(CheckInOut.schedule)
+                selectinload(CheckInOut.schedule).selectinload(Schedule.role)
             ).filter(
                 CheckInOut.employee_id == employee.id,
                 CheckInOut.date == today,
@@ -1190,7 +1213,7 @@ async def get_attendance(
     """Get attendance records with optional filters"""
     query = select(CheckInOut).options(
         selectinload(CheckInOut.employee).selectinload(Employee.user),
-        selectinload(CheckInOut.schedule)
+        selectinload(CheckInOut.schedule).selectinload(Schedule.role)
     )
 
     # Role-based filtering

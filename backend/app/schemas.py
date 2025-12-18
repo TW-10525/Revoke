@@ -122,6 +122,8 @@ class EmployeeAttendanceResponse(BaseModel):
     first_name: str
     last_name: str
     email: str
+    assigned_shift_time: Optional[str] = None
+    total_hrs_assigned: Optional[str] = None
     latest_check_in: Optional[datetime] = None
     latest_check_out: Optional[datetime] = None
     

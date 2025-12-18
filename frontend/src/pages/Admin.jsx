@@ -1116,28 +1116,49 @@ const AdminDepartments = () => {
       width: '200px',
       render: (row) => `${row.first_name} ${row.last_name}`
     },
-    { key: 'email', label: 'Email', width: '250px' },
+    { key: 'email', label: 'Email', width: '200px' },
     { 
-      key: 'latest_check_in', 
-      label: 'Latest Check-In', 
-      width: '200px',
-      render: (row) => (
-        <div>
-          <div className="text-sm font-medium">{formatTime(row.latest_check_in)}</div>
-          <div className="text-xs text-gray-500">{formatDate(row.latest_check_in)}</div>
-        </div>
-      )
+      key: 'assigned_shift', 
+      label: 'Assigned Shift Time', 
+      width: '180px',
+      render: (row) => row.assigned_shift_time || '-'
     },
     { 
-      key: 'latest_check_out', 
-      label: 'Latest Check-Out', 
-      width: '200px',
-      render: (row) => (
-        <div>
-          <div className="text-sm font-medium">{formatTime(row.latest_check_out)}</div>
-          <div className="text-xs text-gray-500">{formatDate(row.latest_check_out)}</div>
-        </div>
-      )
+      key: 'total_hrs_assigned', 
+      label: 'Total Hrs Assigned', 
+      width: '150px',
+      render: (row) => row.total_hrs_assigned ? `${row.total_hrs_assigned} hrs` : '-'
+    },
+    { 
+      key: 'check_in', 
+      label: 'Check-In', 
+      width: '130px',
+      render: (row) => formatTime(row.latest_check_in)
+    },
+    { 
+      key: 'check_out', 
+      label: 'Check-Out', 
+      width: '130px',
+      render: (row) => formatTime(row.latest_check_out)
+    },
+    { 
+      key: 'total_hrs_worked', 
+      label: 'Total Hrs Worked', 
+      width: '150px',
+      render: (row) => {
+        if (!row.latest_check_in || !row.latest_check_out) return '-';
+        const checkIn = new Date(row.latest_check_in);
+        const checkOut = new Date(row.latest_check_out);
+        const diffMs = checkOut - checkIn;
+        const hours = (diffMs / (1000 * 60 * 60)).toFixed(2);
+        return `${hours} hrs`;
+      }
+    },
+    { 
+      key: 'break_time', 
+      label: 'Break Time', 
+      width: '120px',
+      render: () => '1 hr'
     },
   ];
 

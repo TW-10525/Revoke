@@ -1857,42 +1857,77 @@ const ManagerAttendance = ({ user }) => {
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Employee</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Scheduled Time</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assigned Shift Time</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Hrs Assigned</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Check-In</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Check-Out</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Hrs Worked</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Break Time</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {attendance.map((record) => (
-                    <tr key={record.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        {record.employee?.first_name} {record.employee?.last_name}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {record.schedule?.role?.name || 'N/A'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {record.schedule ? `${record.schedule.start_time} - ${record.schedule.end_time}` : '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {record.check_in_time ? format(new Date(record.check_in_time), 'HH:mm') : '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {record.check_out_time ? format(new Date(record.check_out_time), 'HH:mm') : '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 py-1 rounded-full text-xs ${
-                          record.check_in_status === 'on-time' ? 'bg-green-100 text-green-800' :
-                          record.check_in_status === 'slightly-late' ? 'bg-yellow-100 text-yellow-800' :
-                          record.check_in_status === 'late' ? 'bg-orange-100 text-orange-800' :
-                          'bg-blue-100 text-blue-800'
-                        }`}>
-                          {record.check_in_status || 'Scheduled'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {attendance.map((record) => {
+                    // Calculate total assigned hours
+                    const calculateTotalAssignedHours = () => {
+                      if (!record.schedule?.start_time || !record.schedule?.end_time) return '-';
+                      const [startH, startM] = record.schedule.start_time.split(':').map(Number);
+                      const [endH, endM] = record.schedule.end_time.split(':').map(Number);
+                      const start = startH + startM / 60;
+                      const end = endH + endM / 60;
+                      const hours = end > start ? end - start : 24 - start + end;
+                      return hours.toFixed(2);
+                    };
+
+                    // Calculate total hours worked
+                    const calculateTotalHoursWorked = () => {
+                      if (!record.check_in_time || !record.check_out_time) return '-';
+                      const checkIn = new Date(record.check_in_time);
+                      const checkOut = new Date(record.check_out_time);
+                      const diffMs = checkOut - checkIn;
+                      const hours = diffMs / (1000 * 60 * 60);
+                      return hours.toFixed(2);
+                    };
+
+                    return (
+                      <tr key={record.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          {record.employee?.first_name} {record.employee?.last_name}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          {record.schedule?.role?.name || 'N/A'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          {record.schedule ? `${record.schedule.start_time} - ${record.schedule.end_time}` : '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
+                          {calculateTotalAssignedHours()} hrs
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          {record.check_in_time ? format(new Date(record.check_in_time), 'HH:mm') : '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          {record.check_out_time ? format(new Date(record.check_out_time), 'HH:mm') : '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
+                          {calculateTotalHoursWorked()} hrs
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          1 hr
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`px-2 py-1 rounded-full text-xs ${
+                            record.check_in_status === 'on-time' ? 'bg-green-100 text-green-800' :
+                            record.check_in_status === 'slightly-late' ? 'bg-yellow-100 text-yellow-800' :
+                            record.check_in_status === 'late' ? 'bg-orange-100 text-orange-800' :
+                            'bg-blue-100 text-blue-800'
+                          }`}>
+                            {record.check_in_status || 'Scheduled'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
