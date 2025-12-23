@@ -10,6 +10,7 @@ import Table from '../components/common/Table';
 import RoleManagement from '../components/RoleManagement';
 import ScheduleManager from '../components/ScheduleManager';
 import OvertimeApproval from '../components/OvertimeApproval';
+import CompOffManagement from '../components/CompOffManagement';
 import api from '../services/api';
 import {
   listEmployees,
@@ -1490,6 +1491,7 @@ const ManagerLeaves = () => {
   const [searchEmpId, setSearchEmpId] = useState('');
   const [employeeStats, setEmployeeStats] = useState(null);
   const [showEmployeeStats, setShowEmployeeStats] = useState(false);
+  const [leaveFilter, setLeaveFilter] = useState('all'); // all, paid, unpaid, comp-off
 
   useEffect(() => {
     loadLeaves();
@@ -1716,7 +1718,102 @@ const ManagerLeaves = () => {
           } days
         </td>
       </tr>
-      
+
+      <!-- Spacing -->
+      <tr style="height: 15px;"><td colspan="5"></td></tr>
+
+      <!-- ========== COMP-OFF SUMMARY ========== -->
+      <tr style="background-color: #0891b2; color: white; font-weight: bold; height: 25px;">
+        <td colspan="5" style="font-size: 14px;">COMP-OFF SUMMARY</td>
+      </tr>
+
+      <tr style="background-color: #cffafe;">
+        <td style="font-weight: bold; width: 40%;">Metric</td>
+        <td colspan="4" style="font-weight: bold; text-align: center;">Value</td>
+      </tr>
+
+      <tr style="background-color: #ecfeff;">
+        <td style="font-weight: bold;">Comp-Off Earned</td>
+        <td colspan="4" style="text-align: center;">${stats.comp_off_earned || 0} days</td>
+      </tr>
+
+      <tr style="background-color: #ecfeff;">
+        <td style="font-weight: bold;">Comp-Off Used</td>
+        <td colspan="4" style="text-align: center;">${stats.comp_off_used || 0} days</td>
+      </tr>
+
+      <tr style="background-color: #ecfeff;">
+        <td style="font-weight: bold;">Comp-Off Available</td>
+        <td colspan="4" style="text-align: center; font-weight: bold;">${stats.comp_off_available || 0} days</td>
+      </tr>
+
+      <tr style="background-color: #ecfeff;">
+        <td style="font-weight: bold;">Comp-Off Usage Percentage</td>
+        <td colspan="4" style="text-align: center;">
+          ${stats.comp_off_earned > 0 ? Math.round((stats.comp_off_used / stats.comp_off_earned) * 100) : 0}%
+        </td>
+      </tr>
+
+      <!-- Spacing -->
+      <tr style="height: 15px;"><td colspan="5"></td></tr>
+
+      <!-- ========== COMP-OFF MONTHLY BREAKDOWN ========== -->
+      ${stats.comp_off_monthly_breakdown && stats.comp_off_monthly_breakdown.length > 0 ? `
+      <tr style="background-color: #0891b2; color: white; font-weight: bold; height: 25px;">
+        <td colspan="5" style="font-size: 14px;">COMP-OFF MONTH-WISE BREAKDOWN</td>
+      </tr>
+
+      <tr style="background-color: #cffafe; font-weight: bold;">
+        <td style="text-align: center;">Month</td>
+        <td style="text-align: center; background-color: #a5f3fc;">Earned</td>
+        <td style="text-align: center; background-color: #fed7aa;">Used</td>
+        <td style="text-align: center; background-color: #e5e7eb;">Expired</td>
+        <td style="text-align: center; background-color: #a7f3d0;">Available</td>
+      </tr>
+
+      ${stats.comp_off_monthly_breakdown
+        .map((month, idx) => `
+        <tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f9fafb'};">
+          <td style="text-align: center; font-weight: 500;">${month.month}</td>
+          <td style="text-align: center; background-color: ${idx % 2 === 0 ? '#cffafe' : '#ecfeff'};">${month.earned}</td>
+          <td style="text-align: center; background-color: ${idx % 2 === 0 ? '#ffedd5' : '#fed7aa'};">${month.used}</td>
+          <td style="text-align: center; background-color: ${idx % 2 === 0 ? '#f3f4f6' : '#e5e7eb'};">${month.expired}</td>
+          <td style="text-align: center; background-color: ${idx % 2 === 0 ? '#d1fae5' : '#a7f3d0'}; font-weight: bold;">${month.available}</td>
+        </tr>
+        `)
+        .join('')}
+
+      <!-- Spacing -->
+      <tr style="height: 15px;"><td colspan="5"></td></tr>
+      ` : ''}
+
+      <!-- ========== COMP-OFF TRANSACTIONS ========== -->
+      ${stats.comp_off_details && stats.comp_off_details.length > 0 ? `
+      <tr style="background-color: #0891b2; color: white; font-weight: bold; height: 25px;">
+        <td colspan="5" style="font-size: 14px;">RECENT COMP-OFF TRANSACTIONS (LAST 10)</td>
+      </tr>
+
+      <tr style="background-color: #cffafe; font-weight: bold;">
+        <td style="text-align: center;">Date</td>
+        <td style="text-align: center;">Type</td>
+        <td style="text-align: center;">Month</td>
+        <td colspan="2" style="text-align: center;">Notes</td>
+      </tr>
+
+      ${stats.comp_off_details
+        .map((detail, idx) => `
+        <tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f9fafb'};">
+          <td style="text-align: center;">${new Date(detail.date).toLocaleDateString()}</td>
+          <td style="text-align: center; font-weight: 500; ${detail.type === 'earned' ? 'background-color: #cffafe;' : detail.type === 'used' ? 'background-color: #fed7aa;' : 'background-color: #e5e7eb;'}">
+            ${detail.type.toUpperCase()}
+          </td>
+          <td style="text-align: center;">${detail.month || '-'}</td>
+          <td colspan="2" style="padding: 5px;">${detail.notes || '-'}</td>
+        </tr>
+        `)
+        .join('')}
+      ` : ''}
+
     </table>
     `;
 
@@ -1726,7 +1823,7 @@ const ManagerLeaves = () => {
     const url = URL.createObjectURL(blob);
     
     link.setAttribute('href', url);
-    link.setAttribute('download', `${stats.employee_name}_leave_statistics_${new Date().toISOString().split('T')[0]}.xls`);
+    link.setAttribute('download', `${stats.employee_name}_leave_compoff_report_${new Date().toISOString().split('T')[0]}.xls`);
     link.style.visibility = 'hidden';
     
     document.body.appendChild(link);
@@ -1748,8 +1845,41 @@ const ManagerLeaves = () => {
   };
 
   const columns = [
-    { header: 'Employee', render: (row) => `Employee #${row.employee_id}` },
-    { header: 'Leave Type', accessor: 'leave_type' },
+    {
+      header: 'Employee',
+      render: (row) => {
+        if (row.employee) {
+          return `${row.employee.first_name} ${row.employee.last_name} (${row.employee.employee_id})`;
+        }
+        return `Employee #${row.employee_id}`;
+      }
+    },
+    {
+      header: 'Leave Type',
+      render: (row) => {
+        let durationLabel = 'Full Day';
+        if (row.duration_type === 'half_day_morning') {
+          durationLabel = 'Half Day (AM)';
+        } else if (row.duration_type === 'half_day_afternoon') {
+          durationLabel = 'Half Day (PM)';
+        }
+
+        const isCompOffUsage = row.leave_type === 'comp_off';
+        const typeLabel = row.leave_type === 'comp_off' ? 'Comp-Off Usage' :
+                         (row.leave_type.charAt(0).toUpperCase() + row.leave_type.slice(1));
+
+        return (
+          <div className="flex items-center gap-2">
+            <span>{typeLabel} - {durationLabel}</span>
+            {isCompOffUsage && (
+              <span className="px-2 py-0.5 bg-purple-100 text-purple-800 text-xs font-semibold rounded">
+                USES EARNED
+              </span>
+            )}
+          </div>
+        );
+      }
+    },
     { header: 'Start Date', render: (row) => format(new Date(row.start_date), 'MMM dd, yyyy') },
     { header: 'End Date', render: (row) => format(new Date(row.end_date), 'MMM dd, yyyy') },
     { header: 'Reason', accessor: 'reason' },
@@ -1783,7 +1913,15 @@ const ManagerLeaves = () => {
 
   if (loading) return <div className="p-6">Loading...</div>;
 
+  // Apply filter
+  const filteredLeaves = leaveFilter === 'all'
+    ? leaves
+    : leaves.filter(leave => leave.leave_type === leaveFilter);
+
   const pendingCount = leaves.filter(l => l.status === 'pending').length;
+  const paidCount = leaves.filter(l => l.leave_type === 'paid').length;
+  const unpaidCount = leaves.filter(l => l.leave_type === 'unpaid').length;
+  const compOffCount = leaves.filter(l => l.leave_type === 'comp_off').length;
 
   return (
     <div>
@@ -1817,23 +1955,48 @@ const ManagerLeaves = () => {
               </div>
             </Card>
 
-            {/* Quick Stats Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-              <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
-                <p className="text-xs text-gray-600 mb-1">Total Paid Leave</p>
-                <p className="text-2xl font-bold text-purple-600">{employeeStats.total_paid_leave}</p>
+            {/* Quick Stats Cards - Leave */}
+            <div className="mb-4">
+              <h4 className="text-sm font-semibold text-gray-700 mb-2">📅 Leave Summary</h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
+                  <p className="text-xs text-gray-600 mb-1">Total Paid Leave</p>
+                  <p className="text-2xl font-bold text-purple-600">{employeeStats.total_paid_leave}</p>
+                </div>
+                <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
+                  <p className="text-xs text-gray-600 mb-1">Taken (Paid)</p>
+                  <p className="text-2xl font-bold text-orange-600">{employeeStats.taken_paid_leave}</p>
+                </div>
+                <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                  <p className="text-xs text-gray-600 mb-1">Available (Paid)</p>
+                  <p className="text-2xl font-bold text-green-600">{employeeStats.available_paid_leave}</p>
+                </div>
+                <div className="p-4 bg-red-50 rounded-lg border border-red-200">
+                  <p className="text-xs text-gray-600 mb-1">Taken (Unpaid)</p>
+                  <p className="text-2xl font-bold text-red-600">{employeeStats.taken_unpaid_leave}</p>
+                </div>
               </div>
-              <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
-                <p className="text-xs text-gray-600 mb-1">Taken (Paid)</p>
-                <p className="text-2xl font-bold text-orange-600">{employeeStats.taken_paid_leave}</p>
-              </div>
-              <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-                <p className="text-xs text-gray-600 mb-1">Available (Paid)</p>
-                <p className="text-2xl font-bold text-green-600">{employeeStats.available_paid_leave}</p>
-              </div>
-              <div className="p-4 bg-red-50 rounded-lg border border-red-200">
-                <p className="text-xs text-gray-600 mb-1">Taken (Unpaid)</p>
-                <p className="text-2xl font-bold text-red-600">{employeeStats.taken_unpaid_leave}</p>
+            </div>
+
+            {/* Quick Stats Cards - Comp-Off */}
+            <div className="mb-6">
+              <h4 className="text-sm font-semibold text-gray-700 mb-2">⏰ Comp-Off Summary</h4>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="p-4 bg-cyan-50 rounded-lg border border-cyan-200 border-l-4">
+                  <p className="text-xs text-gray-600 mb-1">Comp-Off Earned</p>
+                  <p className="text-2xl font-bold text-cyan-600">{employeeStats.comp_off_earned || 0}</p>
+                  <p className="text-xs text-gray-500 mt-1">total days</p>
+                </div>
+                <div className="p-4 bg-amber-50 rounded-lg border border-amber-200 border-l-4">
+                  <p className="text-xs text-gray-600 mb-1">Comp-Off Used</p>
+                  <p className="text-2xl font-bold text-amber-600">{employeeStats.comp_off_used || 0}</p>
+                  <p className="text-xs text-gray-500 mt-1">days taken</p>
+                </div>
+                <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-200 border-l-4">
+                  <p className="text-xs text-gray-600 mb-1">Comp-Off Available</p>
+                  <p className="text-2xl font-bold text-emerald-600">{employeeStats.comp_off_available || 0}</p>
+                  <p className="text-xs text-gray-500 mt-1">days remaining</p>
+                </div>
               </div>
             </div>
 
@@ -1919,7 +2082,58 @@ const ManagerLeaves = () => {
                       </div>
                     </div>
 
-                    {/* Monthly Breakdown - Enhanced */}
+                    {/* Comp-Off Statistics - Detailed */}
+                    <div className="mb-8">
+                      <h3 className="text-lg font-bold text-gray-900 mb-4 pb-2 border-b-2 border-cyan-500">
+                        ⏰ Comp-Off Statistics
+                      </h3>
+                      <div className="grid grid-cols-3 gap-4 mb-6">
+                        <div className="p-4 bg-cyan-50 rounded-lg border-l-4 border-cyan-500">
+                          <p className="text-xs text-gray-600 uppercase tracking-wide mb-2">Comp-Off Earned</p>
+                          <p className="text-4xl font-bold text-cyan-600">{employeeStats.comp_off_earned || 0}</p>
+                          <p className="text-xs text-gray-500 mt-1">total days earned</p>
+                        </div>
+                        <div className="p-4 bg-amber-50 rounded-lg border-l-4 border-amber-500">
+                          <p className="text-xs text-gray-600 uppercase tracking-wide mb-2">Comp-Off Used</p>
+                          <p className="text-4xl font-bold text-amber-600">{employeeStats.comp_off_used || 0}</p>
+                          <p className="text-xs text-gray-500 mt-1">days utilized</p>
+                        </div>
+                        <div className="p-4 bg-emerald-50 rounded-lg border-l-4 border-emerald-500">
+                          <p className="text-xs text-gray-600 uppercase tracking-wide mb-2">Comp-Off Available</p>
+                          <p className="text-4xl font-bold text-emerald-600">{employeeStats.comp_off_available || 0}</p>
+                          <p className="text-xs text-gray-500 mt-1">days remaining</p>
+                        </div>
+                      </div>
+
+                      {/* Comp-Off Progress Bar */}
+                      {employeeStats.comp_off_earned > 0 && (
+                        <div className="bg-gray-50 p-4 rounded-lg mb-3">
+                          <div className="flex justify-between items-center mb-2">
+                            <p className="text-sm font-semibold text-gray-700">Usage Progress</p>
+                            <p className="text-sm font-bold text-cyan-600">
+                              {employeeStats.comp_off_earned > 0
+                                ? Math.round((employeeStats.comp_off_used / employeeStats.comp_off_earned) * 100)
+                                : 0}%
+                            </p>
+                          </div>
+                          <div className="w-full bg-gray-300 rounded-full h-3">
+                            <div
+                              className="bg-cyan-600 h-3 rounded-full transition-all"
+                              style={{
+                                width: `${employeeStats.comp_off_earned > 0
+                                  ? Math.min((employeeStats.comp_off_used / employeeStats.comp_off_earned) * 100, 100)
+                                  : 0}%`
+                              }}
+                            ></div>
+                          </div>
+                          <p className="text-xs text-gray-600 mt-2">
+                            {employeeStats.comp_off_used} / {employeeStats.comp_off_earned} days used
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Monthly Breakdown - Leave */}
                     {employeeStats.monthly_breakdown && employeeStats.monthly_breakdown.length > 0 && (
                       <div className="mb-8">
                         <h3 className="text-lg font-bold text-gray-900 mb-4 pb-2 border-b-2 border-blue-500">
@@ -1957,6 +2171,94 @@ const ManagerLeaves = () => {
                                       {month.total}
                                     </span>
                                   </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Monthly Breakdown - Comp-Off */}
+                    {employeeStats.comp_off_monthly_breakdown && employeeStats.comp_off_monthly_breakdown.length > 0 && (
+                      <div className="mb-8">
+                        <h3 className="text-lg font-bold text-gray-900 mb-4 pb-2 border-b-2 border-cyan-500">
+                          ⏰ Comp-Off Monthly Breakdown
+                        </h3>
+                        <div className="overflow-x-auto rounded-lg border border-gray-300">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="bg-gradient-to-r from-gray-100 to-gray-50 border-b-2 border-gray-300">
+                                <th className="px-4 py-3 text-left font-semibold text-gray-700">Month</th>
+                                <th className="px-4 py-3 text-center font-semibold text-cyan-700 bg-cyan-50">Earned</th>
+                                <th className="px-4 py-3 text-center font-semibold text-amber-700 bg-amber-50">Used</th>
+                                <th className="px-4 py-3 text-center font-semibold text-gray-700 bg-gray-50">Expired</th>
+                                <th className="px-4 py-3 text-center font-semibold text-emerald-700 bg-emerald-50">Available</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {employeeStats.comp_off_monthly_breakdown.map((month, idx) => (
+                                <tr key={idx} className="border-b border-gray-200 hover:bg-cyan-50 transition">
+                                  <td className="px-4 py-3 text-gray-900 font-medium">{month.month}</td>
+                                  <td className="px-4 py-3 text-center">
+                                    <span className="px-3 py-1 bg-cyan-100 text-cyan-700 rounded-full font-semibold text-sm">
+                                      {month.earned}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full font-semibold text-sm">
+                                      {month.used}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    <span className={`px-3 py-1 rounded-full font-semibold text-sm ${month.expired > 0 ? 'bg-gray-200 text-gray-700' : 'bg-gray-100 text-gray-500'}`}>
+                                      {month.expired}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full font-bold text-sm">
+                                      {month.available}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Recent Comp-Off Transactions */}
+                    {employeeStats.comp_off_details && employeeStats.comp_off_details.length > 0 && (
+                      <div className="mb-8">
+                        <h3 className="text-lg font-bold text-gray-900 mb-4 pb-2 border-b-2 border-cyan-500">
+                          ⏰ Recent Comp-Off Transactions (Last 10)
+                        </h3>
+                        <div className="overflow-x-auto rounded-lg border border-gray-300">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="bg-gradient-to-r from-gray-100 to-gray-50 border-b-2 border-gray-300">
+                                <th className="px-4 py-3 text-left font-semibold text-gray-700">Date</th>
+                                <th className="px-4 py-3 text-center font-semibold text-gray-700">Type</th>
+                                <th className="px-4 py-3 text-left font-semibold text-gray-700">Month</th>
+                                <th className="px-4 py-3 text-left font-semibold text-gray-700">Notes</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {employeeStats.comp_off_details.map((detail, idx) => (
+                                <tr key={idx} className="border-b border-gray-200 hover:bg-gray-50 transition">
+                                  <td className="px-4 py-3 text-gray-900">{new Date(detail.date).toLocaleDateString()}</td>
+                                  <td className="px-4 py-3 text-center">
+                                    <span className={`px-3 py-1 rounded-full font-semibold text-sm ${
+                                      detail.type === 'earned' ? 'bg-cyan-100 text-cyan-700' :
+                                      detail.type === 'used' ? 'bg-amber-100 text-amber-700' :
+                                      'bg-gray-100 text-gray-700'
+                                    }`}>
+                                      {detail.type}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-gray-700">{detail.month || '-'}</td>
+                                  <td className="px-4 py-3 text-gray-600 text-xs">{detail.notes || '-'}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -2076,13 +2378,66 @@ const ManagerLeaves = () => {
             </div>
           </Card>
         </div>
-        <Card title="All Leave Requests" subtitle={`${leaves.length} total requests`}>
-          <Table columns={columns} data={leaves} />
+
+        {/* Filter Buttons */}
+        <div className="mb-6 flex gap-3 flex-wrap">
+          <button
+            onClick={() => setLeaveFilter('all')}
+            className={`px-6 py-2 rounded-lg font-medium transition ${
+              leaveFilter === 'all'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            All Requests ({leaves.length})
+          </button>
+          <button
+            onClick={() => setLeaveFilter('paid')}
+            className={`px-6 py-2 rounded-lg font-medium transition ${
+              leaveFilter === 'paid'
+                ? 'bg-green-600 text-white shadow-md'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            Paid Leave ({paidCount})
+          </button>
+          <button
+            onClick={() => setLeaveFilter('unpaid')}
+            className={`px-6 py-2 rounded-lg font-medium transition ${
+              leaveFilter === 'unpaid'
+                ? 'bg-orange-600 text-white shadow-md'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            Unpaid Leave ({unpaidCount})
+          </button>
+          <button
+            onClick={() => setLeaveFilter('comp_off')}
+            className={`px-6 py-2 rounded-lg font-medium transition ${
+              leaveFilter === 'comp_off'
+                ? 'bg-purple-600 text-white shadow-md'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            Comp-Off Usage ({compOffCount})
+          </button>
+        </div>
+
+        <Card
+          title={
+            leaveFilter === 'all' ? 'All Leave Requests' :
+            leaveFilter === 'paid' ? 'Paid Leave Requests' :
+            leaveFilter === 'unpaid' ? 'Unpaid Leave Requests' :
+            'Comp-Off Usage Requests'
+          }
+          subtitle={`${filteredLeaves.length} ${leaveFilter === 'all' ? 'total' : leaveFilter === 'comp_off' ? 'comp-off usage' : leaveFilter} requests`}
+        >
+          <Table columns={columns} data={filteredLeaves} />
         </Card>
         <Modal
           isOpen={showModal}
           onClose={() => setShowModal(false)}
-          title={`${action === 'approve' ? 'Approve' : 'Reject'} Leave Request`}
+          title={`${action === 'approve' ? 'Approve' : 'Reject'} ${selectedLeave?.leave_type === 'comp_off' ? 'Comp-Off Usage' : 'Leave'} Request`}
           footer={
             <div className="flex justify-end space-x-3">
               <Button variant="outline" onClick={() => setShowModal(false)}>
@@ -2101,7 +2456,27 @@ const ManagerLeaves = () => {
             <div className="space-y-4">
               <div>
                 <p className="text-sm text-gray-500">Employee</p>
-                <p className="font-medium">Employee #{selectedLeave.employee_id}</p>
+                <p className="font-medium">
+                  {selectedLeave.employee
+                    ? `${selectedLeave.employee.first_name} ${selectedLeave.employee.last_name} (${selectedLeave.employee.employee_id})`
+                    : `Employee #${selectedLeave.employee_id}`}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Leave Type</p>
+                <p className="font-medium">
+                  {selectedLeave.leave_type === 'comp_off' ? 'Comp-Off Usage' :
+                   (selectedLeave.leave_type.charAt(0).toUpperCase() + selectedLeave.leave_type.slice(1))}
+                  {selectedLeave.duration_type && (
+                    <span className="ml-2">
+                      ({selectedLeave.duration_type === 'half_day_morning'
+                        ? 'Half Day - Morning'
+                        : selectedLeave.duration_type === 'half_day_afternoon'
+                        ? 'Half Day - Afternoon'
+                        : 'Full Day'})
+                    </span>
+                  )}
+                </p>
               </div>
               <div>
                 <p className="text-sm text-gray-500">Leave Period</p>
@@ -2777,6 +3152,19 @@ const ManagerMessages = ({ user }) => {
   );
 };
 
+// =============== MANAGER COMP-OFF COMPONENT ===============
+
+const ManagerCompOff = ({ user }) => {
+  return (
+    <div>
+      <Header title="Comp-Off Management" subtitle="Manage and approve employee comp-off requests" />
+      <div className="p-6">
+        <CompOffManagement currentUser={user} departmentId={user.manager_department_id} />
+      </div>
+    </div>
+  );
+};
+
 // =============== MAIN MANAGER DASHBOARD COMPONENT ===============
 
 const ManagerDashboard = ({ user, onLogout }) => {
@@ -2791,6 +3179,7 @@ const ManagerDashboard = ({ user, onLogout }) => {
             <Route path="/roles" element={<ManagerRoles user={user} />} />
             <Route path="/schedules" element={<ManagerSchedules user={user} />} />
             <Route path="/leaves" element={<ManagerLeaves />} />
+            <Route path="/comp-off" element={<ManagerCompOff user={user} />} />
             <Route path="/overtime-approvals" element={<OvertimeApproval />} />
             <Route path="/attendance" element={<ManagerAttendance user={user} />} />
             <Route path="/messages" element={<ManagerMessages user={user} />} />

@@ -123,6 +123,24 @@ export const rejectLeave = (leaveId, reviewNotes) => {
 export const getLeaveStatistics = () => api.get('/leave-statistics');
 export const getEmployeeLeaveStatistics = (employeeId) => api.get(`/leave-statistics/employee/${employeeId}`);
 
+// Comp-Off Management
+export const createCompOffRequest = (compOffData) => api.post('/comp-off-requests', compOffData);
+export const listCompOffRequests = () => api.get('/comp-off-requests');
+export const getCompOffTracking = () => api.get('/comp-off-tracking');
+export const getMonthlyCompOffBreakdown = () => api.get('/comp-off/monthly-breakdown');
+export const validateCompOffAvailable = (month) => api.get(`/comp-off/validate-available/${month}`);
+export const approveCompOff = (compOffId, reviewNotes) => {
+  const body = { review_notes: reviewNotes || 'Approved' };
+  return api.post(`/manager/approve-comp-off/${compOffId}`, body);
+};
+export const rejectCompOff = (compOffId, reviewNotes) => {
+  const body = { review_notes: reviewNotes || '' };
+  return api.post(`/manager/reject-comp-off/${compOffId}`, body);
+};
+export const getCompOffStatistics = () => api.get('/comp-off-statistics');
+export const exportCompOffReport = () => api.get('/comp-off/export/employee', { responseType: 'blob' });
+export const exportLeaveCompOffReport = (employeeId) => api.get(`/manager/export-leave-compoff/${employeeId}`, { responseType: 'blob' });
+
 // Unavailability
 export const createUnavailability = (unavailData) => api.post('/unavailability', unavailData);
 export const listUnavailability = (employeeId = null, startDate = null, endDate = null) => {

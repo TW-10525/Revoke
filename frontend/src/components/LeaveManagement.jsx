@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Plus, Trash2, AlertCircle, CheckCircle, Clock } from 'lucide-react';
-import api from '../services/api';
+import api, { exportLeaveCompOffReport } from '../services/api';
 
 const LeaveManagement = ({ currentUser, departmentId }) => {
   const [leaves, setLeaves] = useState([]);
@@ -17,6 +17,7 @@ const LeaveManagement = ({ currentUser, departmentId }) => {
     start_date: '',
     end_date: '',
     leave_type: 'paid',
+    duration_type: 'full_day',
     reason: ''
   });
 
@@ -30,7 +31,8 @@ const LeaveManagement = ({ currentUser, departmentId }) => {
 
   const leaveTypes = [
     { value: 'paid', label: 'Paid Leave' },
-    { value: 'unpaid', label: 'Unpaid Leave' }
+    { value: 'unpaid', label: 'Unpaid Leave' },
+    { value: 'comp-off', label: 'Comp-Off (Use Earned)' }
   ];
 
   const unavailReasons = [
@@ -42,6 +44,9 @@ const LeaveManagement = ({ currentUser, departmentId }) => {
     'Appointment',
     'Other'
   ];
+
+  // Note: Comp-off is now handled in a separate CompOffManagement component
+  // This allows for better separation of concerns and cleaner UI
 
   useEffect(() => {
     loadData();
@@ -82,18 +87,25 @@ const LeaveManagement = ({ currentUser, departmentId }) => {
       setLoading(false);
     }
   };
-    }
-  };
 
   const handleAddLeave = async () => {
-    if (!leaveForm.employee_id || !leaveForm.start_date || !leaveForm.end_date) {
+    if (!leaveForm.employee_id || !leaveForm.start_date) {
       alert('Please fill all required fields');
       return;
     }
 
+    // For half-day leaves, set end_date to be same as start_date
+    const formData = { ...leaveForm };
+    if (formData.duration_type && formData.duration_type.startsWith('half_day')) {
+      formData.end_date = formData.start_date;
+    } else if (!formData.end_date) {
+      alert('Please select an end date for full-day leave');
+      return;
+    }
+
     try {
-      await api.post('/leave-requests', leaveForm);
-      setLeaveForm({ employee_id: '', start_date: '', end_date: '', leave_type: 'paid', reason: '' });
+      await api.post('/leave-requests', formData);
+      setLeaveForm({ employee_id: '', start_date: '', end_date: '', leave_type: 'paid', duration_type: 'full_day', reason: '' });
       setShowLeaveForm(false);
       await loadData();
     } catch (error) {
@@ -168,52 +180,32 @@ const LeaveManagement = ({ currentUser, departmentId }) => {
     }
   };
 
-  const handleDownloadLeaveReport = () => {
+  const handleDownloadLeaveReport = async () => {
     if (!managerLeaveStats) {
       alert('Please search for an employee first');
       return;
     }
 
-    // Create CSV data with monthly breakdown
-    const csvLines = [
-      ['Employee Leave Report'],
-      [],
-      ['Employee ID', managerLeaveStats.employee_id],
-      ['Employee Name', managerLeaveStats.employee_name],
-      [],
-      ['Leave Summary'],
-      ['Total Paid Leave (Annual)', managerLeaveStats.total_paid_leave],
-      ['Taken Paid Leave', managerLeaveStats.taken_paid_leave],
-      ['Taken Unpaid Leave', managerLeaveStats.taken_unpaid_leave],
-      ['Available Paid Leave', managerLeaveStats.available_paid_leave],
-      ['Total Leaves Taken', managerLeaveStats.total_leaves_taken],
-      [],
-      ['Monthly Breakdown'],
-      ['Month', 'Paid Leave', 'Unpaid Leave', 'Total']
-    ];
+    try {
+      // Download Excel file with both leave and comp-off data
+      const response = await exportLeaveCompOffReport(managerLeaveStats.employee_id);
 
-    // Add monthly breakdown rows
-    if (managerLeaveStats.monthly_breakdown && managerLeaveStats.monthly_breakdown.length > 0) {
-      managerLeaveStats.monthly_breakdown.forEach(month => {
-        csvLines.push([month.month, month.paid, month.unpaid, month.total]);
+      // Create blob and download
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `leave-compoff-report-${managerLeaveStats.employee_id}-${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error downloading report:', error);
+      alert('Failed to download report. Please try again.');
     }
-
-    csvLines.push([]);
-    csvLines.push(['Generated on', new Date().toLocaleDateString()]);
-
-    const csvContent = csvLines.map(row => row.join(',')).join('\n');
-
-    // Create blob and download
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `leave-report-${managerLeaveStats.employee_id}-${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    window.URL.revokeObjectURL(url);
-    document.body.removeChild(a);
   };
 
   const getStatusBadge = (status) => {
@@ -323,6 +315,9 @@ const LeaveManagement = ({ currentUser, departmentId }) => {
                     <h4 className="font-semibold text-lg">{managerLeaveStats.employee_name}</h4>
                     <p className="text-sm text-gray-600">ID: {managerLeaveStats.employee_id}</p>
                   </div>
+
+                  {/* Leave Statistics */}
+                  <h5 className="font-semibold text-gray-700 mb-2 text-sm">📅 Leave Summary</h5>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
                     <div className="bg-blue-50 p-3 rounded">
                       <p className="text-xs text-gray-600">Total Paid Leave</p>
@@ -345,17 +340,38 @@ const LeaveManagement = ({ currentUser, departmentId }) => {
                       <p className="text-lg font-bold text-purple-600">{managerLeaveStats.total_leaves_taken}</p>
                     </div>
                   </div>
+
+                  {/* Comp-Off Statistics */}
+                  <h5 className="font-semibold text-gray-700 mb-2 text-sm mt-4">⏰ Comp-Off Summary</h5>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+                    <div className="bg-cyan-50 p-3 rounded border-l-4 border-cyan-500">
+                      <p className="text-xs text-gray-600">Comp-Off Earned</p>
+                      <p className="text-lg font-bold text-cyan-600">{managerLeaveStats.comp_off_earned || 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">total days</p>
+                    </div>
+                    <div className="bg-amber-50 p-3 rounded border-l-4 border-amber-500">
+                      <p className="text-xs text-gray-600">Comp-Off Used</p>
+                      <p className="text-lg font-bold text-amber-600">{managerLeaveStats.comp_off_used || 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">days taken</p>
+                    </div>
+                    <div className="bg-emerald-50 p-3 rounded border-l-4 border-emerald-500">
+                      <p className="text-xs text-gray-600">Comp-Off Available</p>
+                      <p className="text-lg font-bold text-emerald-600">{managerLeaveStats.comp_off_available || 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">days remaining</p>
+                    </div>
+                  </div>
+
                   <button
                     onClick={handleDownloadLeaveReport}
                     className="w-full bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 flex items-center justify-center gap-2"
                   >
-                    📥 Download Report (CSV)
+                    📥 Download Leave & Comp-Off Report (Excel)
                   </button>
                   
-                  {/* Monthly Breakdown */}
+                  {/* Monthly Breakdown - Leave */}
                   {managerLeaveStats.monthly_breakdown && managerLeaveStats.monthly_breakdown.length > 0 && (
                     <div className="mt-6 pt-6 border-t">
-                      <h5 className="font-semibold text-gray-800 mb-3">Monthly Breakdown</h5>
+                      <h5 className="font-semibold text-gray-800 mb-3">📅 Monthly Leave Breakdown</h5>
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                           <thead>
@@ -381,6 +397,90 @@ const LeaveManagement = ({ currentUser, departmentId }) => {
                                   </span>
                                 </td>
                                 <td className="px-3 py-2 text-center font-bold">{month.total}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Monthly Breakdown - Comp-Off */}
+                  {managerLeaveStats.comp_off_monthly_breakdown && managerLeaveStats.comp_off_monthly_breakdown.length > 0 && (
+                    <div className="mt-6 pt-6 border-t">
+                      <h5 className="font-semibold text-gray-800 mb-3">⏰ Monthly Comp-Off Breakdown</h5>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-gray-100 border-b">
+                              <th className="px-3 py-2 text-left">Month</th>
+                              <th className="px-3 py-2 text-center">Earned</th>
+                              <th className="px-3 py-2 text-center">Used</th>
+                              <th className="px-3 py-2 text-center">Expired</th>
+                              <th className="px-3 py-2 text-center">Available</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {managerLeaveStats.comp_off_monthly_breakdown.map((month, idx) => (
+                              <tr key={idx} className="border-b hover:bg-gray-50">
+                                <td className="px-3 py-2 font-medium text-gray-700">{month.month}</td>
+                                <td className="px-3 py-2 text-center">
+                                  <span className="bg-cyan-100 text-cyan-800 px-2 py-1 rounded text-xs font-semibold">
+                                    {month.earned}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded text-xs font-semibold">
+                                    {month.used}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <span className="bg-gray-100 text-gray-800 px-2 py-1 rounded text-xs font-semibold">
+                                    {month.expired}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <span className="bg-emerald-100 text-emerald-800 px-2 py-1 rounded text-xs font-semibold">
+                                    {month.available}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recent Comp-Off Details */}
+                  {managerLeaveStats.comp_off_details && managerLeaveStats.comp_off_details.length > 0 && (
+                    <div className="mt-6 pt-6 border-t">
+                      <h5 className="font-semibold text-gray-800 mb-3">⏰ Recent Comp-Off Transactions (Last 10)</h5>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-gray-100 border-b">
+                              <th className="px-3 py-2 text-left">Date</th>
+                              <th className="px-3 py-2 text-center">Type</th>
+                              <th className="px-3 py-2 text-left">Month</th>
+                              <th className="px-3 py-2 text-left">Notes</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {managerLeaveStats.comp_off_details.map((detail, idx) => (
+                              <tr key={idx} className="border-b hover:bg-gray-50">
+                                <td className="px-3 py-2 text-gray-700">{new Date(detail.date).toLocaleDateString()}</td>
+                                <td className="px-3 py-2 text-center">
+                                  <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                                    detail.type === 'earned' ? 'bg-cyan-100 text-cyan-800' :
+                                    detail.type === 'used' ? 'bg-amber-100 text-amber-800' :
+                                    'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {detail.type}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-gray-700">{detail.month || '-'}</td>
+                                <td className="px-3 py-2 text-gray-600 text-xs">{detail.notes || '-'}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -440,7 +540,22 @@ const LeaveManagement = ({ currentUser, departmentId }) => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Start Date</label>
+                  <label className="block text-sm font-medium mb-1">Duration Type</label>
+                  <select
+                    value={leaveForm.duration_type}
+                    onChange={(e) => setLeaveForm({ ...leaveForm, duration_type: e.target.value })}
+                    className="w-full border rounded px-3 py-2"
+                  >
+                    <option value="full_day">Full Day</option>
+                    <option value="half_day_morning">Half Day - Morning</option>
+                    <option value="half_day_afternoon">Half Day - Afternoon</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    {leaveForm.duration_type?.startsWith('half_day') ? 'Date' : 'Start Date'}
+                  </label>
                   <input
                     type="date"
                     value={leaveForm.start_date}
@@ -449,15 +564,18 @@ const LeaveManagement = ({ currentUser, departmentId }) => {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium mb-1">End Date</label>
-                  <input
-                    type="date"
-                    value={leaveForm.end_date}
-                    onChange={(e) => setLeaveForm({ ...leaveForm, end_date: e.target.value })}
-                    className="w-full border rounded px-3 py-2"
-                  />
-                </div>
+                {leaveForm.duration_type === 'full_day' && (
+                  <div>
+                    <label className="block text-sm font-medium mb-1">End Date</label>
+                    <input
+                      type="date"
+                      value={leaveForm.end_date}
+                      onChange={(e) => setLeaveForm({ ...leaveForm, end_date: e.target.value })}
+                      className="w-full border rounded px-3 py-2"
+                      min={leaveForm.start_date}
+                    />
+                  </div>
+                )}
 
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium mb-1">Reason</label>
@@ -499,10 +617,22 @@ const LeaveManagement = ({ currentUser, departmentId }) => {
                     <div className="flex-1">
                       <h4 className="font-semibold">{getEmployeeName(leave.employee_id)}</h4>
                       <p className="text-sm text-gray-600">
-                        {formatDate(leave.start_date)} to {formatDate(leave.end_date)}
+                        {leave.duration_type?.startsWith('half_day') ? (
+                          <>
+                            {formatDate(leave.start_date)} -
+                            <span className="ml-1 font-medium text-blue-600">
+                              {leave.duration_type === 'half_day_morning' ? 'Half Day (Morning)' : 'Half Day (Afternoon)'}
+                            </span>
+                          </>
+                        ) : (
+                          `${formatDate(leave.start_date)} to ${formatDate(leave.end_date)}`
+                        )}
                       </p>
                       <p className="text-sm text-gray-600 mt-1">
                         <span className="font-medium">Type:</span> {leave.leave_type}
+                        {leave.duration_type?.startsWith('half_day') && (
+                          <span className="ml-2 bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-xs">0.5 day</span>
+                        )}
                       </p>
                       {leave.reason && (
                         <p className="text-sm text-gray-600">

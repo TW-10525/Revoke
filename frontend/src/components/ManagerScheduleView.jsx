@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, X, RefreshCw } from 'lucide-react';
-import { format, addDays, startOfWeek, isToday, addWeeks, subWeeks } from 'date-fns';
+import { format, addDays, startOfWeek, isToday, addWeeks, subWeeks, parseISO } from 'date-fns';
 
 const ManagerScheduleView = ({ user }) => {
   const [schedule, setSchedule] = useState({});
   const [employees, setEmployees] = useState([]);
-  const [roles, setRoles] = useState([]);
+  const [roles, setRoles] = useState([});
   const [leaveRequests, setLeaveRequests] = useState({});
   const [unavailability, setUnavailability] = useState({});
   const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
   const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [selectedLeave, setSelectedLeave] = useState(null);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState(null);
 
@@ -83,16 +84,16 @@ const ManagerScheduleView = ({ user }) => {
         const leavesByKey = {};
         leavesData.forEach(leave => {
           if (leave.status === 'approved') {
-            // Expand date range: create entry for each day in the leave period
-            const startDate = new Date(leave.start_date + 'T00:00:00');
-            const endDate = new Date(leave.end_date + 'T00:00:00');
+            // Parse dates properly to avoid timezone issues
+            const startDate = parseISO(leave.start_date);
+            const endDate = parseISO(leave.end_date);
 
             // Iterate through each day in the range (inclusive)
-            for (let currentDate = new Date(startDate);
-                 currentDate <= endDate;
-                 currentDate.setDate(currentDate.getDate() + 1)) {
+            let currentDate = startDate;
+            while (format(currentDate, 'yyyy-MM-dd') <= format(endDate, 'yyyy-MM-dd')) {
               const dateStr = format(currentDate, 'yyyy-MM-dd');
               leavesByKey[`${leave.employee_id}-${dateStr}`] = leave;
+              currentDate = addDays(currentDate, 1);
             }
           }
         });
@@ -344,17 +345,32 @@ const ManagerScheduleView = ({ user }) => {
                           const unavail = isUnavailable(emp.id, date);
                           const dateStr = format(date, 'yyyy-MM-dd');
 
+                          const leaveData = leaveRequests[`${emp.id}-${dateStr}`];
+                          const isCompOff = leaveData?.leave_type === 'comp_off';
+                          
                           return (
                             <td
                               key={dateStr}
-                              className={`border border-gray-300 p-2 min-h-20 align-top text-xs ${
+                              onClick={() => {
+                                if (onLeave && leaveData) {
+                                  console.log('Leave clicked:', leaveData);
+                                  setSelectedLeave({
+                                    ...leaveData,
+                                    employee: emp,
+                                    leaveDate: dateStr
+                                  });
+                                }
+                              }}
+                              className={`border p-2 min-h-20 align-top text-xs transition-all cursor-pointer ${
                                 onLeave
-                                  ? 'bg-red-100'
+                                  ? isCompOff
+                                    ? 'bg-purple-100 hover:bg-purple-200 border-purple-300'
+                                    : 'bg-red-100 hover:bg-red-200 border-red-300'
                                   : unavail
-                                  ? 'bg-orange-100'
+                                  ? 'bg-orange-100 border-orange-300'
                                   : isToday(date)
-                                  ? 'bg-blue-50'
-                                  : 'bg-white'
+                                  ? 'bg-blue-50 border-gray-300'
+                                  : 'bg-white border-gray-300'
                               }`}
                               style={{ minWidth: '140px' }}
                             >
@@ -364,9 +380,28 @@ const ManagerScheduleView = ({ user }) => {
                                 </div>
                               )}
                               {onLeave && (
-                                <div className="mb-2">
+                                <div className="mb-2 p-1">
                                   <div className="text-center">
-                                    <div className="font-bold text-red-700">LEAVE</div>
+                                    {/* Show Leave Type as Title */}
+                                    <div className={`font-bold text-xs mb-0.5 ${
+                                      isCompOff ? 'text-purple-700' : 'text-red-700'
+                                    }`}>
+                                      {leaveData?.leave_type === 'paid' 
+                                        ? '💼 PAID' 
+                                        : leaveData?.leave_type === 'unpaid' 
+                                        ? '📋 UNPAID' 
+                                        : '🏥 COMP-OFF'}
+                                    </div>
+                                    {/* Show Duration */}
+                                    <div className={`font-bold text-sm ${
+                                      isCompOff ? 'text-purple-700' : 'text-red-700'
+                                    }`}>
+                                      {leaveData?.duration_type === 'half_day_morning' 
+                                        ? '🌅 0.5 (AM)' 
+                                        : leaveData?.duration_type === 'half_day_afternoon'
+                                        ? '🌆 0.5 (PM)'
+                                        : '✓ 1.0 DAY'}
+                                    </div>
                                   </div>
                                 </div>
                               )}
@@ -411,7 +446,11 @@ const ManagerScheduleView = ({ user }) => {
           </div>
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 bg-red-100 border border-red-300 rounded"></div>
-            <span>Leave</span>
+            <span>Leave (Paid/Unpaid)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 bg-purple-100 border border-purple-300 rounded"></div>
+            <span>Comp-Off Usage</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 bg-orange-100 border border-orange-300 rounded"></div>
@@ -513,6 +552,109 @@ const ManagerScheduleView = ({ user }) => {
             <button
               onClick={() => setSelectedEmployee(null)}
               className="w-full mt-6 px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-medium"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Leave Details Modal */}
+      {selectedLeave && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-9999 p-4" onClick={() => setSelectedLeave(null)}>
+          <div className="bg-white rounded-lg max-w-md w-full p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">Leave Details</h2>
+              <button
+                onClick={() => setSelectedLeave(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Leave Information */}
+            <div className="space-y-4">
+              {/* Employee */}
+              <div>
+                <p className="text-sm text-gray-600 font-semibold">Employee</p>
+                <p className="text-lg text-gray-900 font-bold">
+                  {selectedLeave.employee?.first_name} {selectedLeave.employee?.last_name}
+                </p>
+              </div>
+
+              {/* Leave Type */}
+              <div>
+                <p className="text-sm text-gray-600 font-semibold">Leave Type</p>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className={`inline-block px-3 py-1 rounded-full text-white font-bold text-sm ${
+                    selectedLeave.leave_type === 'paid' ? 'bg-blue-600' :
+                    selectedLeave.leave_type === 'unpaid' ? 'bg-orange-600' :
+                    'bg-purple-600'
+                  }`}>
+                    {selectedLeave.leave_type === 'paid' ? '💼 PAID LEAVE' :
+                     selectedLeave.leave_type === 'unpaid' ? '📋 UNPAID LEAVE' :
+                     selectedLeave.leave_type === 'comp_off' ? '🏥 COMP-OFF USAGE' :
+                     '🏥 COMP-OFF USAGE'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Duration */}
+              <div>
+                <p className="text-sm text-gray-600 font-semibold">Duration</p>
+                <p className="text-lg text-gray-900 font-bold">
+                  {selectedLeave.duration_type === 'half_day_morning' ? '🌅 Half Day (Morning)' :
+                   selectedLeave.duration_type === 'half_day_afternoon' ? '🌆 Half Day (Afternoon)' :
+                   '🗓️ Full Day'}
+                </p>
+              </div>
+
+              {/* Date Range */}
+              <div>
+                <p className="text-sm text-gray-600 font-semibold">Date Range</p>
+                <p className="text-lg text-gray-900 font-bold">
+                  {selectedLeave.start_date ? format(parseISO(selectedLeave.start_date), 'MMM dd, yyyy') : 'N/A'} to {selectedLeave.end_date ? format(parseISO(selectedLeave.end_date), 'MMM dd, yyyy') : 'N/A'}
+                </p>
+              </div>
+
+              {/* Status */}
+              <div>
+                <p className="text-sm text-gray-600 font-semibold">Status</p>
+                <span className={`inline-block px-3 py-1 rounded-full text-white font-bold text-sm mt-2 ${
+                  selectedLeave.status === 'approved' ? 'bg-green-600' :
+                  selectedLeave.status === 'rejected' ? 'bg-red-600' :
+                  'bg-yellow-600'
+                }`}>
+                  {selectedLeave.status && selectedLeave.status.charAt(0).toUpperCase() + selectedLeave.status.slice(1)}
+                </span>
+              </div>
+
+              {/* Reason */}
+              {selectedLeave.reason && (
+                <div>
+                  <p className="text-sm text-gray-600 font-semibold">Reason</p>
+                  <p className="text-gray-900">{selectedLeave.reason}</p>
+                </div>
+              )}
+
+              {/* Review Notes */}
+              {selectedLeave.review_notes && (
+                <div>
+                  <p className="text-sm text-gray-600 font-semibold">Manager Notes</p>
+                  <p className="text-gray-900 bg-gray-50 p-3 rounded border border-gray-200">{selectedLeave.review_notes}</p>
+                </div>
+              )}
+
+              {/* Request Date */}
+              <div className="text-xs text-gray-500 pt-2 border-t">
+                Requested on: {selectedLeave.created_at ? format(parseISO(selectedLeave.created_at), 'MMM dd, yyyy') : format(parseISO(selectedLeave.start_date), 'MMM dd, yyyy')}
+              </div>
+            </div>
+
+            <button
+              onClick={() => setSelectedLeave(null)}
+              className="w-full mt-6 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold"
             >
               Close
             </button>

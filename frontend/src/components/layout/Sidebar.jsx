@@ -9,7 +9,8 @@ import {
   Clock,
   MessageSquare,
   UserCheck,
-  LogOut
+  LogOut,
+  Gift
 } from 'lucide-react';
 import NotificationBell from './NotificationBell';
 
@@ -29,6 +30,7 @@ const Sidebar = ({ user, onLogout }) => {
         { path: '/roles', icon: ClipboardList, label: 'Role Management' },
         { path: '/overtime-approvals', icon: Clock, label: 'Overtime Approvals' },
         { path: '/leaves', icon: UserCheck, label: 'Leave Requests' },
+        { path: '/comp-off', icon: Gift, label: 'Comp-Off Requests' },
         { path: '/attendance', icon: Clock, label: 'Attendance' },
         { path: '/messages', icon: MessageSquare, label: 'Messages' },
       ];
@@ -39,6 +41,7 @@ const Sidebar = ({ user, onLogout }) => {
         { path: '/requests', icon: ClipboardList, label: 'Requests & Approvals' },
         { path: '/overtime-requests', icon: Clock, label: 'Overtime Requests' },
         { path: '/leaves', icon: UserCheck, label: 'Leave Requests' },
+        { path: '/comp-off', icon: Gift, label: 'Comp-Off' },
         { path: '/attendance', icon: Clock, label: 'My Attendance' },
         { path: '/messages', icon: MessageSquare, label: 'Messages' },
       ];

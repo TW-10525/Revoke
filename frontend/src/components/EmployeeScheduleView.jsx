@@ -71,7 +71,7 @@ const EmployeeScheduleView = ({ employeeId }) => {
 
   const getStatusColor = (schedule) => {
     if (!schedule.status) return 'bg-gray-100 text-gray-800';
-    
+
     switch (schedule.status) {
       case 'scheduled':
         return 'bg-blue-100 text-blue-800';
@@ -81,8 +81,35 @@ const EmployeeScheduleView = ({ employeeId }) => {
         return 'bg-red-100 text-red-800';
       case 'cancelled':
         return 'bg-gray-100 text-gray-800';
+      case 'comp_off_earned':
+        return 'bg-green-100 text-green-800';
+      case 'comp_off_taken':
+        return 'bg-purple-100 text-purple-800';
+      case 'leave':
+        return 'bg-orange-100 text-orange-800';
+      case 'leave_half_morning':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'leave_half_afternoon':
+        return 'bg-amber-100 text-amber-800';
       default:
         return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getStatusLabel = (schedule) => {
+    switch (schedule.status) {
+      case 'leave':
+        return 'Leave (Full Day)';
+      case 'leave_half_morning':
+        return 'Leave (Half - Morning)';
+      case 'leave_half_afternoon':
+        return 'Leave (Half - Afternoon)';
+      case 'comp_off_earned':
+        return 'Comp-Off Earned (Worked)';
+      case 'comp_off_taken':
+        return 'Comp-Off Taken';
+      default:
+        return schedule.status;
     }
   };
 
@@ -120,11 +147,28 @@ const EmployeeScheduleView = ({ employeeId }) => {
         <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-bold text-blue-900 mb-2">Today's Shift</h3>
+              <h3 className="text-lg font-bold text-blue-900 mb-2">
+                {['comp_off_earned', 'comp_off_taken', 'leave', 'leave_half_morning', 'leave_half_afternoon'].includes(todaysSchedule.status)
+                  ? getStatusLabel(todaysSchedule)
+                  : "Today's Shift"}
+              </h3>
               <div className="space-y-2">
                 <p className="text-gray-700">
                   <Clock size={18} className="inline mr-2" />
-                  <strong>{todaysSchedule.start_time} - {todaysSchedule.end_time}</strong>
+                  <strong>
+                    {todaysSchedule.status === 'leave_half_morning'
+                      ? `Morning Leave (${todaysSchedule.start_time} - ${todaysSchedule.end_time})`
+                      : todaysSchedule.status === 'leave_half_afternoon'
+                      ? `Afternoon Leave (${todaysSchedule.start_time} - ${todaysSchedule.end_time})`
+                      : todaysSchedule.status === 'leave'
+                      ? 'Full Day Leave'
+                      : todaysSchedule.status === 'comp_off_earned'
+                      ? 'Shift Assigned (Comp-Off Earned)'
+                      : todaysSchedule.status === 'comp_off_taken'
+                      ? 'Comp-Off Taken (Full Day)'
+                      : `${todaysSchedule.start_time} - ${todaysSchedule.end_time}`
+                    }
+                  </strong>
                 </p>
                 <p className="text-gray-600 text-sm">Role: {todaysSchedule.role_id}</p>
                 {todaysSchedule.notes && (
@@ -153,7 +197,7 @@ const EmployeeScheduleView = ({ employeeId }) => {
                 </div>
               )}
               <p className={`mt-2 px-3 py-1 rounded text-sm font-medium ${getStatusColor(todaysSchedule)} inline-block`}>
-                {todaysSchedule.status}
+                {getStatusLabel(todaysSchedule)}
               </p>
             </div>
           </div>
@@ -237,7 +281,20 @@ const EmployeeScheduleView = ({ employeeId }) => {
                       </p>
                       <p className="text-gray-600 flex items-center gap-2 mt-2">
                         <Clock size={16} />
-                        <strong>{schedule.start_time} - {schedule.end_time}</strong>
+                        <strong>
+                          {schedule.status === 'leave_half_morning'
+                            ? `Morning Leave (${schedule.start_time} - ${schedule.end_time})`
+                            : schedule.status === 'leave_half_afternoon'
+                            ? `Afternoon Leave (${schedule.start_time} - ${schedule.end_time})`
+                            : schedule.status === 'leave'
+                            ? 'Full Day Leave'
+                            : schedule.status === 'comp_off_earned'
+                            ? 'Shift Assigned (Comp-Off Earned)'
+                            : schedule.status === 'comp_off_taken'
+                            ? 'Comp-Off Taken (Full Day)'
+                            : `${schedule.start_time} - ${schedule.end_time}`
+                          }
+                        </strong>
                       </p>
                       {schedule.notes && (
                         <p className="text-gray-500 text-sm mt-1">Notes: {schedule.notes}</p>
@@ -245,7 +302,7 @@ const EmployeeScheduleView = ({ employeeId }) => {
                     </div>
                     <div>
                       <span className={`px-4 py-2 rounded-full text-sm font-medium ${getStatusColor(schedule)}`}>
-                        {schedule.status}
+                        {getStatusLabel(schedule)}
                       </span>
                     </div>
                   </div>
@@ -276,11 +333,22 @@ const EmployeeScheduleView = ({ employeeId }) => {
                       {new Date(schedule.date).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-2 text-gray-800">
-                      {schedule.start_time} - {schedule.end_time}
+                      {schedule.status === 'leave_half_morning'
+                        ? `Morning (${schedule.start_time} - ${schedule.end_time})`
+                        : schedule.status === 'leave_half_afternoon'
+                        ? `Afternoon (${schedule.start_time} - ${schedule.end_time})`
+                        : schedule.status === 'leave'
+                        ? 'Full Day'
+                        : schedule.status === 'comp_off_earned'
+                        ? 'Shift Assigned'
+                        : schedule.status === 'comp_off_taken'
+                        ? 'Full Day'
+                        : `${schedule.start_time} - ${schedule.end_time}`
+                      }
                     </td>
                     <td className="px-4 py-2">
                       <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(schedule)}`}>
-                        {schedule.status}
+                        {getStatusLabel(schedule)}
                       </span>
                     </td>
                     <td className="px-4 py-2 text-gray-600 text-sm">

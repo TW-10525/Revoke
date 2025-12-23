@@ -285,6 +285,7 @@ class LeaveRequestBase(BaseModel):
     start_date: date
     end_date: date
     leave_type: str
+    duration_type: Optional[str] = 'full_day'  # full_day, half_day_morning, half_day_afternoon
     reason: Optional[str] = None
 
 
@@ -298,12 +299,14 @@ class LeaveRequestResponse(BaseModel):
     start_date: date
     end_date: date
     leave_type: str
+    duration_type: Optional[str] = 'full_day'
     reason: Optional[str]
     status: LeaveStatus
     manager_id: Optional[int]
     reviewed_at: Optional[datetime]
     review_notes: Optional[str]
     created_at: datetime
+    employee: Optional['EmployeeResponse'] = None
 
     class Config:
         from_attributes = True
@@ -569,6 +572,87 @@ class OvertimeWorkedResponse(BaseModel):
     overtime_hours: float
     approval_status: str
     notes: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# Comp-Off Schemas
+class CompOffRequestBase(BaseModel):
+    employee_id: Optional[int] = None
+    comp_off_date: date
+    reason: Optional[str] = None
+
+
+class CompOffRequestCreate(CompOffRequestBase):
+    pass
+
+
+class CompOffRequestResponse(BaseModel):
+    id: int
+    employee_id: int
+    comp_off_date: date
+    reason: Optional[str]
+    status: LeaveStatus
+    manager_id: Optional[int]
+    reviewed_at: Optional[datetime]
+    review_notes: Optional[str]
+    schedule_id: Optional[int]
+    created_at: datetime
+    updated_at: datetime
+    employee: Optional['EmployeeResponse'] = None
+
+    class Config:
+        from_attributes = True
+
+
+class CompOffTrackingResponse(BaseModel):
+    id: int
+    employee_id: int
+    earned_days: int
+    used_days: int
+    available_days: int
+    expired_days: int = 0
+    earned_date: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class CompOffDetailResponse(BaseModel):
+    id: int
+    employee_id: int
+    tracking_id: int
+    type: str  # 'earned', 'used', 'expired'
+    date: datetime
+    earned_month: Optional[str] = None  # "2025-12" format
+    expired_at: Optional[datetime] = None
+    notes: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class CompOffMonthlyBreakdown(BaseModel):
+    month: str  # "2025-12" format
+    earned: int
+    used: int
+    available: int
+    expired: int
+    expiry_date: date
+    details: List[CompOffDetailResponse] = []
+
+
+class CompOffStatisticsResponse(BaseModel):
+    total_earned: int
+    total_used: int
+    total_available: int
+    total_expired: int
+    current_month: str
+    by_month: List[CompOffMonthlyBreakdown] = []
 
     class Config:
         from_attributes = True

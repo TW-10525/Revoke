@@ -8,7 +8,8 @@ import Button from '../components/common/Button';
 import Modal from '../components/common/Modal';
 import CheckInOut from '../components/CheckInOut';
 import OvertimeRequest from '../components/OvertimeRequest';
-import {
+import CompOffManagement from '../components/CompOffManagement';
+import api, {
   listLeaveRequests,
   listEmployees,
   getSchedules,
@@ -67,15 +68,28 @@ const EmployeeDashboardHome = ({ user }) => {
           <Card title={`Today's Schedule - ${format(new Date(), 'MMM dd, yyyy')}`}>
             {todaySchedule ? (
               <div className="space-y-4">
-                <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg">
-                  <div>
-                    <p className="text-sm text-gray-600">Shift Time</p>
-                    <p className="text-lg font-semibold text-blue-900">
-                      {todaySchedule.start_time} - {todaySchedule.end_time}
-                    </p>
+                {todaySchedule.status !== 'comp_off' && (
+                  <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg">
+                    <div>
+                      <p className="text-sm text-gray-600">Shift Time</p>
+                      <p className="text-lg font-semibold text-blue-900">
+                        {todaySchedule.start_time} - {todaySchedule.end_time}
+                      </p>
+                    </div>
+                    <Clock className="w-8 h-8 text-blue-600" />
                   </div>
-                  <Clock className="w-8 h-8 text-blue-600" />
-                </div>
+                )}
+                {todaySchedule.status === 'comp_off' && (
+                  <div className="flex items-center justify-between p-4 bg-purple-50 rounded-lg">
+                    <div>
+                      <p className="text-sm text-gray-600">Status</p>
+                      <p className="text-lg font-semibold text-purple-900">
+                        Full Day Comp-Off
+                      </p>
+                    </div>
+                    <Clock className="w-8 h-8 text-purple-600" />
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-center py-8">
@@ -413,6 +427,7 @@ const EmployeeLeaves = ({ user }) => {
   const [employeeId, setEmployeeId] = useState(null);
   const [formData, setFormData] = useState({
     leave_type: 'paid',
+    duration_type: 'full_day',
     start_date: '',
     end_date: '',
     reason: ''
@@ -441,6 +456,16 @@ const EmployeeLeaves = ({ user }) => {
       try {
         const statsRes = await getLeaveStatistics();
         setLeaveStats(statsRes.data);
+        
+        // Set initial leave_type based on available balance
+        const stats = statsRes.data;
+        if (stats.available_paid_leave > 0) {
+          setFormData(prev => ({ ...prev, leave_type: 'paid' }));
+        } else if (stats.comp_off_available > 0) {
+          setFormData(prev => ({ ...prev, leave_type: 'comp_off' }));
+        } else {
+          setFormData(prev => ({ ...prev, leave_type: 'unpaid' }));
+        }
       } catch (statsError) {
         console.error('Failed to load leave statistics:', statsError);
       }
@@ -461,12 +486,26 @@ const EmployeeLeaves = ({ user }) => {
     }
     
     try {
-      await createLeaveRequest({
+      const submitData = {
         ...formData,
         employee_id: employeeId
-      });
+      };
+      
+      // For half-day leaves, auto-set end_date = start_date
+      if (submitData.duration_type.startsWith('half_day')) {
+        submitData.end_date = submitData.start_date;
+      }
+      
+      await createLeaveRequest(submitData);
       setShowModal(false);
-      setFormData({ leave_type: 'paid', start_date: '', end_date: '', reason: '' });
+      // Reset form with smart leave_type based on available balance
+      if (leaveStats?.available_paid_leave > 0) {
+        setFormData({ leave_type: 'paid', duration_type: 'full_day', start_date: '', end_date: '', reason: '' });
+      } else if (leaveStats?.comp_off_available > 0) {
+        setFormData({ leave_type: 'comp_off', duration_type: 'full_day', start_date: '', end_date: '', reason: '' });
+      } else {
+        setFormData({ leave_type: 'unpaid', duration_type: 'full_day', start_date: '', end_date: '', reason: '' });
+      }
       loadLeaves();
     } catch (err) {
       let errorMsg = 'Failed to create leave request';
@@ -675,50 +714,94 @@ const EmployeeLeaves = ({ user }) => {
               <span className="text-sm text-red-700">{error}</span>
             </div>
           )}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Leave Type</label>
-              <select
-                value={formData.leave_type}
-                onChange={(e) => setFormData({ ...formData, leave_type: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                required
-              >
-                <option value="paid">Paid Leave</option>
-                <option value="unpaid">Unpaid Leave</option>
-              </select>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Leave Type and Duration Row */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-4 border-b border-gray-200">
+              <div>
+                <label className="block text-sm font-semibold text-gray-800 mb-2">📋 Leave Type</label>
+                <select
+                  value={formData.leave_type}
+                  onChange={(e) => setFormData({ ...formData, leave_type: e.target.value })}
+                  className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-medium"
+                  required
+                >
+                  {leaveStats?.available_paid_leave > 0 && (
+                    <option value="paid">✓ Paid Leave ({leaveStats.available_paid_leave} days)</option>
+                  )}
+                  <option value="unpaid">⊘ Unpaid Leave</option>
+                  {leaveStats?.comp_off_available > 0 && (
+                    <option value="comp_off">♻ Comp-off (Available: {leaveStats.comp_off_available})</option>
+                  )}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Select the type of leave you are requesting</p>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-800 mb-2">⏰ Duration Type</label>
+                <select
+                  value={formData.duration_type}
+                  onChange={(e) => setFormData({ ...formData, duration_type: e.target.value })}
+                  className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-medium"
+                  required
+                >
+                  <option value="full_day">Full Day (Entire Day)</option>
+                  <option value="half_day_morning">Half Day - Morning Only</option>
+                  <option value="half_day_afternoon">Half Day - Afternoon Only</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Choose if this is a full or half day</p>
+              </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-              <input
-                type="date"
-                value={formData.start_date}
-                onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                required
-              />
+
+            {/* Date Fields */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-4 border-b border-gray-200">
+              <div>
+                <label className="block text-sm font-semibold text-gray-800 mb-2">📅 Start Date</label>
+                <input
+                  type="date"
+                  value={formData.start_date}
+                  onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
+                  className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-medium"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-800 mb-2">📅 End Date</label>
+                <input
+                  type="date"
+                  value={formData.end_date}
+                  onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
+                  className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-medium"
+                  required
+                  disabled={formData.duration_type.startsWith('half_day')}
+                />
+                {formData.duration_type.startsWith('half_day') && (
+                  <p className="text-xs text-blue-600 mt-1">Auto-set to start date for half-day leaves</p>
+                )}
+              </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-              <input
-                type="date"
-                value={formData.end_date}
-                onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+
+            {/* Reason Field */}
+            <div className="pb-4">
+              <label className="block text-sm font-semibold text-gray-800 mb-2">📝 Reason</label>
               <textarea
                 value={formData.reason}
                 onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                rows="4"
-                placeholder="Explain why you need leave..."
-                required
+                className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                rows="3"
+                placeholder="Provide a reason for your request (optional)..."
               />
             </div>
+
+            {/* Summary */}
+            {formData.leave_type && formData.duration_type && formData.start_date && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-gray-700">
+                  <strong>Request Summary:</strong> {formData.duration_type.startsWith('half_day') ? 'Half Day' : 'Full Day'} {formData.leave_type} leave 
+                  on {new Date(formData.start_date).toLocaleDateString()}
+                  {formData.duration_type === 'half_day_morning' && ' (Morning)'}
+                  {formData.duration_type === 'half_day_afternoon' && ' (Afternoon)'}
+                </p>
+              </div>
+            )}
           </form>
         </Modal>
       </div>
@@ -1071,15 +1154,29 @@ const EmployeeRequests = ({ user }) => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [formData, setFormData] = useState({
-    leave_type: 'vacation',
+    leave_type: 'paid',
+    duration_type: 'full_day',
     start_date: '',
     end_date: '',
     reason: ''
   });
+  const [compOffBalance, setCompOffBalance] = useState(0);
 
   useEffect(() => {
     loadRequests();
+    loadCompOffBalance();
   }, []);
+
+  const loadCompOffBalance = async () => {
+    try {
+      const response = await api.get('/comp-off/balance');
+      if (response.data && response.data.balance) {
+        setCompOffBalance(response.data.balance);
+      }
+    } catch (err) {
+      console.error('Failed to load comp-off balance:', err);
+    }
+  };
 
   const loadRequests = async () => {
     try {
@@ -1098,9 +1195,15 @@ const EmployeeRequests = ({ user }) => {
     setSuccess('');
 
     try {
-      await createLeaveRequest(formData);
+      // For half-day leaves, set end_date to start_date
+      const submitData = { ...formData };
+      if (submitData.duration_type && submitData.duration_type.startsWith('half_day')) {
+        submitData.end_date = submitData.start_date;
+      }
+      
+      await createLeaveRequest(submitData);
       setSuccess('✅ Leave request submitted successfully! Your manager will review it.');
-      setFormData({ leave_type: 'vacation', start_date: '', end_date: '', reason: '' });
+      setFormData({ leave_type: 'paid', duration_type: 'full_day', start_date: '', end_date: '', reason: '' });
       setShowModal(false);
       loadRequests();
       
@@ -1185,6 +1288,11 @@ const EmployeeRequests = ({ user }) => {
                       <div className="flex items-center mb-2">
                         {getStatusIcon(req.status)}
                         <span className="font-semibold capitalize">{req.leave_type}</span>
+                        {req.duration_type && req.duration_type !== 'full_day' && (
+                          <span className="text-xs ml-2 px-2 py-1 bg-yellow-100 rounded capitalize">
+                            {req.duration_type.replace(/_/g, ' ')}
+                          </span>
+                        )}
                         <span className={`ml-2 px-2 py-1 text-xs rounded-full ${getStatusColor(req.status)}`}>
                           {req.status.charAt(0).toUpperCase() + req.status.slice(1)}
                         </span>
@@ -1212,8 +1320,15 @@ const EmployeeRequests = ({ user }) => {
                   <div className="flex items-start">
                     <CheckCircle className="w-5 h-5 text-green-600 mr-3 flex-shrink-0 mt-0.5" />
                     <div className="flex-1">
-                      <div className="font-semibold capitalize">{req.leave_type}</div>
-                      <p className="text-sm text-gray-700">
+                      <div className="flex items-center">
+                        <span className="font-semibold capitalize">{req.leave_type}</span>
+                        {req.duration_type && req.duration_type !== 'full_day' && (
+                          <span className="text-xs ml-2 px-2 py-1 bg-green-100 rounded capitalize">
+                            {req.duration_type.replace(/_/g, ' ')}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-700 mt-1">
                         {req.start_date} to {req.end_date}
                       </p>
                       {req.reason && (
@@ -1239,8 +1354,15 @@ const EmployeeRequests = ({ user }) => {
                   <div className="flex items-start">
                     <X className="w-5 h-5 text-red-600 mr-3 flex-shrink-0 mt-0.5" />
                     <div className="flex-1">
-                      <div className="font-semibold capitalize">{req.leave_type}</div>
-                      <p className="text-sm text-gray-700">
+                      <div className="flex items-center">
+                        <span className="font-semibold capitalize">{req.leave_type}</span>
+                        {req.duration_type && req.duration_type !== 'full_day' && (
+                          <span className="text-xs ml-2 px-2 py-1 bg-red-100 rounded capitalize">
+                            {req.duration_type.replace(/_/g, ' ')}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-700 mt-1">
                         {req.start_date} to {req.end_date}
                       </p>
                       {req.reason && (
@@ -1273,56 +1395,103 @@ const EmployeeRequests = ({ user }) => {
             </div>
           }
         >
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Leave Type</label>
-              <select
-                value={formData.leave_type}
-                onChange={(e) => setFormData({ ...formData, leave_type: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-              >
-                <option value="vacation">Vacation</option>
-                <option value="sick">Sick Leave</option>
-                <option value="personal">Personal</option>
-                <option value="overtime">Overtime Request</option>
-              </select>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Leave Type and Duration Row */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-4 border-b border-gray-200">
+              <div>
+                <label className="block text-sm font-semibold text-gray-800 mb-2">📋 Leave Type</label>
+                <select
+                  value={formData.leave_type}
+                  onChange={(e) => setFormData({ ...formData, leave_type: e.target.value })}
+                  className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-medium"
+                >
+                  <option value="paid">✓ Paid Leave</option>
+                  <option value="unpaid">⊘ Unpaid Leave</option>
+                  {compOffBalance > 0 && <option value="comp_off">♻ Comp-off (Available: {compOffBalance})</option>}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Select the type of leave you are requesting</p>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-800 mb-2">⏰ Duration Type</label>
+                <select
+                  value={formData.duration_type}
+                  onChange={(e) => setFormData({ ...formData, duration_type: e.target.value })}
+                  className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-medium"
+                >
+                  <option value="full_day">Full Day (Entire Day)</option>
+                  <option value="half_day_morning">Half Day - Morning Only</option>
+                  <option value="half_day_afternoon">Half Day - Afternoon Only</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Choose if this is a full or half day</p>
+              </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            {/* Date Fields */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-4 border-b border-gray-200">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                <label className="block text-sm font-semibold text-gray-800 mb-2">📅 Start Date</label>
                 <input
                   type="date"
                   value={formData.start_date}
                   onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                  className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-medium"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                <label className="block text-sm font-semibold text-gray-800 mb-2">📅 End Date</label>
                 <input
                   type="date"
                   value={formData.end_date}
                   onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                  className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-medium"
                   required
+                  disabled={formData.duration_type.startsWith('half_day')}
                 />
+                {formData.duration_type.startsWith('half_day') && (
+                  <p className="text-xs text-blue-600 mt-1">Auto-set to start date for half-day leaves</p>
+                )}
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+            {/* Reason Field */}
+            <div className="pb-4">
+              <label className="block text-sm font-semibold text-gray-800 mb-2">📝 Reason</label>
               <textarea
                 value={formData.reason}
                 onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                 rows="3"
-                placeholder="Provide a reason for your request..."
+                placeholder="Provide a reason for your request (optional)..."
               />
             </div>
+
+            {/* Summary */}
+            {formData.leave_type && formData.duration_type && formData.start_date && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-gray-700">
+                  <strong>Request Summary:</strong> {formData.duration_type.startsWith('half_day') ? 'Half Day' : 'Full Day'} {formData.leave_type} leave 
+                  on {new Date(formData.start_date).toLocaleDateString()}
+                  {formData.duration_type === 'half_day_morning' && ' (Morning)'}
+                  {formData.duration_type === 'half_day_afternoon' && ' (Afternoon)'}
+                </p>
+              </div>
+            )}
           </form>
         </Modal>
+      </div>
+    </div>
+  );
+};
+
+// =============== EMPLOYEE COMP-OFF COMPONENT ===============
+
+const EmployeeCompOff = ({ user }) => {
+  return (
+    <div>
+      <Header title="Comp-Off Management" subtitle="Apply and manage your comp-off balance" />
+      <div className="p-6">
+        <CompOffManagement currentUser={user} departmentId={null} />
       </div>
     </div>
   );
@@ -1343,6 +1512,7 @@ const EmployeeDashboard = ({ user, onLogout }) => {
             <Route path="/leaves" element={<EmployeeLeaves user={user} />} />
             <Route path="/requests" element={<EmployeeRequests user={user} />} />
             <Route path="/overtime-requests" element={<OvertimeRequest />} />
+            <Route path="/comp-off" element={<EmployeeCompOff user={user} />} />
             <Route path="/attendance" element={<EmployeeAttendance />} />
             <Route path="/messages" element={<EmployeeMessages />} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />

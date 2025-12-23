@@ -27,7 +27,8 @@ from app.models import (
     User, Department, Manager, Employee, Role, Schedule, LeaveRequest,
     CheckInOut, Message, Notification,
     UserType, LeaveStatus, Attendance, Unavailability, Shift,
-    OvertimeTracking, OvertimeRequest, OvertimeWorked, OvertimeStatus
+    OvertimeTracking, OvertimeRequest, OvertimeWorked, OvertimeStatus,
+    CompOffRequest, CompOffTracking, CompOffDetail
 )
 from app.schemas import *
 from app.auth import (
@@ -96,6 +97,87 @@ async def general_exception_handler(request: Request, exc: Exception):
         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept"
     
     return response
+
+
+# ===== CONSTRAINT VALIDATION HELPER FUNCTIONS =====
+
+async def validate_5_shifts_per_week(
+    employee_id: int, 
+    target_date: date, 
+    db: AsyncSession,
+    exclude_schedule_id: Optional[int] = None
+) -> tuple[bool, str]:
+    """
+    Validate that employee doesn't exceed 5 shifts per week
+    Returns: (is_valid, error_message)
+    """
+    week_start = target_date - timedelta(days=target_date.weekday())
+    week_end = week_start + timedelta(days=6)
+    
+    query = select(func.count(Schedule.id)).filter(
+        Schedule.employee_id == employee_id,
+        Schedule.date >= week_start,
+        Schedule.date <= week_end,
+        Schedule.status.in_(['scheduled', 'leave', 'comp_off_taken', 'leave_half_morning', 'leave_half_afternoon'])
+    )
+    
+    if exclude_schedule_id:
+        query = query.filter(Schedule.id != exclude_schedule_id)
+    
+    result = await db.execute(query)
+    existing_shifts_count = result.scalar() or 0
+    
+    if existing_shifts_count >= 5:
+        return False, f"Cannot assign more than 5 shifts per week. Employee already has {existing_shifts_count} shifts this week (Mon-Sun: {week_start} to {week_end})"
+    
+    return True, ""
+
+
+async def validate_consecutive_shifts_limit(
+    employee_id: int,
+    target_date: date,
+    db: AsyncSession,
+    exclude_schedule_id: Optional[int] = None,
+    max_consecutive: int = 5
+) -> tuple[bool, str]:
+    """
+    Validate that adding a shift on target_date doesn't exceed consecutive shift limit
+    Returns: (is_valid, error_message)
+    """
+    week_start = target_date - timedelta(days=target_date.weekday())
+    week_end = week_start + timedelta(days=6)
+    
+    query = select(Schedule).filter(
+        Schedule.employee_id == employee_id,
+        Schedule.date >= week_start,
+        Schedule.date <= week_end,
+        Schedule.status.in_(['scheduled', 'leave', 'comp_off_taken', 'leave_half_morning', 'leave_half_afternoon'])
+    ).order_by(Schedule.date)
+    
+    if exclude_schedule_id:
+        query = query.filter(Schedule.id != exclude_schedule_id)
+    
+    result = await db.execute(query)
+    existing_schedules = result.scalars().all()
+    
+    # Collect all dates including the new one
+    all_dates = sorted([s.date for s in existing_schedules] + [target_date])
+    all_dates = list(dict.fromkeys(all_dates))  # Remove duplicates while preserving order
+    
+    # Find the longest consecutive sequence
+    max_consecutive_found = 1
+    current_consecutive = 1
+    for i in range(1, len(all_dates)):
+        if (all_dates[i] - all_dates[i-1]).days == 1:
+            current_consecutive += 1
+            max_consecutive_found = max(max_consecutive_found, current_consecutive)
+        else:
+            current_consecutive = 1
+    
+    if max_consecutive_found > max_consecutive:
+        return False, f"Cannot create {max_consecutive_found} consecutive shifts. Maximum allowed is {max_consecutive} consecutive shifts."
+    
+    return True, ""
 
 
 # Health check
@@ -1698,23 +1780,23 @@ async def export_monthly_attendance(
                 raise HTTPException(status_code=403, detail="You don't have permission to download reports for this department")
         elif current_user.user_type != UserType.ADMIN:
             raise HTTPException(status_code=403, detail="Only admins and managers can download attendance reports")
-        
+
         # Get department
         dept_result = await db.execute(select(Department).filter(Department.id == department_id))
         department = dept_result.scalar_one_or_none()
         if not department:
             raise HTTPException(status_code=404, detail="Department not found")
-        
+
         # Get employees in department
         emp_result = await db.execute(
             select(Employee).filter(Employee.department_id == department_id, Employee.is_active == True)
         )
         employees = emp_result.scalars().all()
-        
+
         # Get attendance for the month
         start_date = date(year, month, 1)
         end_date = date(year, month, monthrange(year, month)[1])
-        
+
         att_result = await db.execute(
             select(Attendance).filter(
                 Attendance.employee_id.in_([e.id for e in employees]) if employees else False,
@@ -1723,12 +1805,12 @@ async def export_monthly_attendance(
             ).order_by(Attendance.date, Attendance.employee_id)
         )
         attendance_records = att_result.scalars().all()
-        
+
         # Create workbook
         wb = Workbook()
         ws = wb.active
         ws.title = f"Attendance"
-        
+
         # Header styles
         header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
         header_font = Font(bold=True, color="FFFFFF")
@@ -1738,17 +1820,17 @@ async def export_monthly_attendance(
             top=Side(style='thin'),
             bottom=Side(style='thin')
         )
-        
+
         # Title
         ws['A1'] = f"{department.name} - Monthly Attendance Report"
         ws['A1'].font = Font(bold=True, size=14)
-        ws.merge_cells('A1:J1')
-        
+        ws.merge_cells('A1:M1')
+
         ws['A2'] = f"December 2025"
-        ws.merge_cells('A2:J2')
-        
-        # Headers
-        headers = ['Employee ID', 'Name', 'Date', 'Assigned Shift', 'Total Hrs Assigned', 'Check-In', 'Check-Out', 'Total Hrs Worked', 'Break Time', 'Overtime Hours', 'Status']
+        ws.merge_cells('A2:M2')
+
+        # Headers - Added Comp-Off and Leave columns
+        headers = ['Employee ID', 'Name', 'Date', 'Leave Status', 'Assigned Shift', 'Total Hrs Assigned', 'Check-In', 'Check-Out', 'Total Hrs Worked', 'Break Time', 'Overtime Hours', 'Status', 'Comp-Off Earned', 'Comp-Off Used']
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=4, column=col)
             cell.value = header
@@ -1756,7 +1838,7 @@ async def export_monthly_attendance(
             cell.font = header_font
             cell.alignment = Alignment(horizontal='center', vertical='center')
             cell.border = border
-        
+
         # Get schedules for shift information
         sched_result = await db.execute(
             select(Schedule).filter(
@@ -1767,9 +1849,52 @@ async def export_monthly_attendance(
         )
         schedules = sched_result.scalars().all()
         schedule_map = {}
+        comp_off_earned_map = {}
         for sched in schedules:
             schedule_map[(sched.employee_id, sched.date)] = sched
+            # Track comp-off earned days
+            if sched.status == 'comp_off_earned':
+                comp_off_earned_map[(sched.employee_id, sched.date)] = True
+
+        # Get comp-off details for used days
+        compoff_details_result = await db.execute(
+            select(CompOffDetail).filter(
+                CompOffDetail.employee_id.in_([e.id for e in employees]) if employees else False,
+                CompOffDetail.date >= start_date,
+                CompOffDetail.date <= end_date,
+                CompOffDetail.type == 'used'
+            )
+        )
+        compoff_details = compoff_details_result.scalars().all()
+        comp_off_used_map = {}
+        for detail in compoff_details:
+            detail_date = detail.date.date() if hasattr(detail.date, 'date') else detail.date
+            comp_off_used_map[(detail.employee_id, detail_date)] = True
         
+        # Get approved leave requests for the month
+        from datetime import timedelta
+        leaves_result = await db.execute(
+            select(LeaveRequest).filter(
+                LeaveRequest.employee_id.in_([e.id for e in employees]) if employees else False,
+                LeaveRequest.start_date <= end_date,
+                LeaveRequest.end_date >= start_date,
+                LeaveRequest.status == LeaveStatus.APPROVED
+            )
+        )
+        leave_requests = leaves_result.scalars().all()
+        # Create a map of (employee_id, date) -> leave info
+        leave_map = {}
+        for leave in leave_requests:
+            for i in range((leave.end_date - leave.start_date).days + 1):
+                current_date = leave.start_date + timedelta(days=i)
+                if start_date <= current_date <= end_date:
+                    leave_info = {
+                        'leave_type': leave.leave_type,
+                        'duration_type': leave.duration_type or 'full_day',
+                        'days': 0.5 if leave.duration_type and leave.duration_type.startswith('half_day') else 1.0
+                    }
+                    leave_map[(leave.employee_id, current_date)] = leave_info
+
         # Data
         row = 5
         for record in attendance_records:
@@ -1789,19 +1914,47 @@ async def export_monthly_attendance(
                         total_hrs_assigned = f"{hours:.2f}"
                     except:
                         pass
+
+                # Check if comp-off earned or used on this date
+                comp_off_earned_str = '✓ Yes' if comp_off_earned_map.get((record.employee_id, record.date)) else '-'
+                comp_off_used_str = '✓ Yes' if comp_off_used_map.get((record.employee_id, record.date)) else '-'
                 
+                # Get leave info for this date - check both LeaveRequest and Schedule status
+                leave_info = leave_map.get((record.employee_id, record.date))
+                leave_status = '-'
+                if schedule and schedule.status in ['leave', 'leave_half_morning', 'leave_half_afternoon', 'comp_off_taken']:
+                    # Get from schedule status
+                    if schedule.status == 'leave_half_morning':
+                        leave_status = f"LEAVE - Half Day AM (0.5)"
+                    elif schedule.status == 'leave_half_afternoon':
+                        leave_status = f"LEAVE - Half Day PM (0.5)"
+                    elif schedule.status == 'comp_off_taken':
+                        leave_status = "COMP_OFF - Full Day (1.0)"
+                    else:  # 'leave'
+                        leave_status = "LEAVE - Full Day (1.0)"
+                elif leave_info:
+                    if leave_info['duration_type'] == 'half_day_morning':
+                        leave_status = f"{leave_info['leave_type'].upper()} - Half Day AM (0.5)"
+                    elif leave_info['duration_type'] == 'half_day_afternoon':
+                        leave_status = f"{leave_info['leave_type'].upper()} - Half Day PM (0.5)"
+                    else:
+                        leave_status = f"{leave_info['leave_type'].upper()} - Full Day (1.0)"
+
                 ws.cell(row=row, column=1).value = employee.employee_id
                 ws.cell(row=row, column=2).value = f"{employee.first_name} {employee.last_name}"
                 ws.cell(row=row, column=3).value = record.date.isoformat()
-                ws.cell(row=row, column=4).value = assigned_shift
-                ws.cell(row=row, column=5).value = total_hrs_assigned
-                ws.cell(row=row, column=6).value = record.in_time or '-'
-                ws.cell(row=row, column=7).value = record.out_time or '-'
-                ws.cell(row=row, column=8).value = f"{record.worked_hours:.2f}" if record.worked_hours else '-'
-                ws.cell(row=row, column=9).value = f"{record.break_minutes}" if record.break_minutes else '-'
-                ws.cell(row=row, column=10).value = f"{record.overtime_hours:.2f}" if record.overtime_hours else '-'
-                ws.cell(row=row, column=11).value = record.status or '-'
-                for col in range(1, 12):
+                ws.cell(row=row, column=4).value = leave_status
+                ws.cell(row=row, column=5).value = assigned_shift
+                ws.cell(row=row, column=6).value = total_hrs_assigned
+                ws.cell(row=row, column=7).value = record.in_time or '-'
+                ws.cell(row=row, column=8).value = record.out_time or '-'
+                ws.cell(row=row, column=9).value = f"{record.worked_hours:.2f}" if record.worked_hours else '-'
+                ws.cell(row=row, column=10).value = f"{record.break_minutes}" if record.break_minutes else '-'
+                ws.cell(row=row, column=11).value = f"{record.overtime_hours:.2f}" if record.overtime_hours else '-'
+                ws.cell(row=row, column=12).value = record.status or '-'
+                ws.cell(row=row, column=13).value = comp_off_earned_str
+                ws.cell(row=row, column=14).value = comp_off_used_str
+                for col in range(1, 15):
                     ws.cell(row=row, column=col).border = border
                 row += 1
         
@@ -1809,20 +1962,23 @@ async def export_monthly_attendance(
         ws.column_dimensions['A'].width = 12
         ws.column_dimensions['B'].width = 20
         ws.column_dimensions['C'].width = 12
-        ws.column_dimensions['D'].width = 18
-        ws.column_dimensions['E'].width = 16
-        ws.column_dimensions['F'].width = 12
+        ws.column_dimensions['D'].width = 28
+        ws.column_dimensions['E'].width = 18
+        ws.column_dimensions['F'].width = 16
         ws.column_dimensions['G'].width = 12
-        ws.column_dimensions['H'].width = 14
-        ws.column_dimensions['I'].width = 12
-        ws.column_dimensions['J'].width = 15
-        ws.column_dimensions['K'].width = 12
-        
+        ws.column_dimensions['H'].width = 12
+        ws.column_dimensions['I'].width = 14
+        ws.column_dimensions['J'].width = 12
+        ws.column_dimensions['K'].width = 15
+        ws.column_dimensions['L'].width = 12
+        ws.column_dimensions['M'].width = 14
+        ws.column_dimensions['N'].width = 14
+
         # Save to bytes
         file_bytes = io.BytesIO()
         wb.save(file_bytes)
         file_bytes.seek(0)
-        
+
         return StreamingResponse(
             iter([file_bytes.getvalue()]),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1896,13 +2052,13 @@ async def export_weekly_attendance(
         # Title
         ws['A1'] = f"{department.name} - Weekly Attendance Report"
         ws['A1'].font = Font(bold=True, size=14)
-        ws.merge_cells('A1:J1')
-        
+        ws.merge_cells('A1:M1')
+
         ws['A2'] = f"{start_date.isoformat()} to {end_date.isoformat()}"
-        ws.merge_cells('A2:J2')
-        
-        # Headers
-        headers = ['Employee ID', 'Name', 'Date', 'Assigned Shift', 'Total Hrs Assigned', 'Check-In', 'Check-Out', 'Total Hrs Worked', 'Break Time', 'Overtime Hours', 'Status']
+        ws.merge_cells('A2:M2')
+
+        # Headers - Added Comp-Off columns
+        headers = ['Employee ID', 'Name', 'Date', 'Assigned Shift', 'Total Hrs Assigned', 'Check-In', 'Check-Out', 'Total Hrs Worked', 'Break Time', 'Overtime Hours', 'Status', 'Comp-Off Earned', 'Comp-Off Used']
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=4, column=col)
             cell.value = header
@@ -1910,7 +2066,7 @@ async def export_weekly_attendance(
             cell.font = header_font
             cell.alignment = Alignment(horizontal='center', vertical='center')
             cell.border = border
-        
+
         # Get schedules for shift information
         sched_result = await db.execute(
             select(Schedule).filter(
@@ -1921,8 +2077,27 @@ async def export_weekly_attendance(
         )
         schedules = sched_result.scalars().all()
         schedule_map = {}
+        comp_off_earned_map = {}
         for sched in schedules:
             schedule_map[(sched.employee_id, sched.date)] = sched
+            # Track comp-off earned days
+            if sched.status == 'comp_off_earned':
+                comp_off_earned_map[(sched.employee_id, sched.date)] = True
+
+        # Get comp-off details for used days
+        compoff_details_result = await db.execute(
+            select(CompOffDetail).filter(
+                CompOffDetail.employee_id.in_([e.id for e in employees]) if employees else False,
+                CompOffDetail.date >= start_date,
+                CompOffDetail.date <= end_date,
+                CompOffDetail.type == 'used'
+            )
+        )
+        compoff_details = compoff_details_result.scalars().all()
+        comp_off_used_map = {}
+        for detail in compoff_details:
+            detail_date = detail.date.date() if hasattr(detail.date, 'date') else detail.date
+            comp_off_used_map[(detail.employee_id, detail_date)] = True
         
         # Data
         row = 5
@@ -1943,7 +2118,11 @@ async def export_weekly_attendance(
                         total_hrs_assigned = f"{hours:.2f}"
                     except:
                         pass
-                
+
+                # Check if comp-off earned or used on this date
+                comp_off_earned_str = '✓ Yes' if comp_off_earned_map.get((record.employee_id, record.date)) else '-'
+                comp_off_used_str = '✓ Yes' if comp_off_used_map.get((record.employee_id, record.date)) else '-'
+
                 ws.cell(row=row, column=1).value = employee.employee_id
                 ws.cell(row=row, column=2).value = f"{employee.first_name} {employee.last_name}"
                 ws.cell(row=row, column=3).value = record.date.isoformat()
@@ -1955,10 +2134,12 @@ async def export_weekly_attendance(
                 ws.cell(row=row, column=9).value = f"{record.break_minutes}" if record.break_minutes else '-'
                 ws.cell(row=row, column=10).value = f"{record.overtime_hours:.2f}" if record.overtime_hours else '-'
                 ws.cell(row=row, column=11).value = record.status or '-'
-                for col in range(1, 12):
+                ws.cell(row=row, column=12).value = comp_off_earned_str
+                ws.cell(row=row, column=13).value = comp_off_used_str
+                for col in range(1, 14):
                     ws.cell(row=row, column=col).border = border
                 row += 1
-        
+
         # Adjust column widths
         ws.column_dimensions['A'].width = 12
         ws.column_dimensions['B'].width = 20
@@ -1971,12 +2152,14 @@ async def export_weekly_attendance(
         ws.column_dimensions['I'].width = 12
         ws.column_dimensions['J'].width = 15
         ws.column_dimensions['K'].width = 12
-        
+        ws.column_dimensions['L'].width = 14
+        ws.column_dimensions['M'].width = 14
+
         # Save to bytes
         file_bytes = io.BytesIO()
         wb.save(file_bytes)
         file_bytes.seek(0)
-        
+
         return StreamingResponse(
             iter([file_bytes.getvalue()]),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -2068,8 +2251,26 @@ async def export_employee_monthly_attendance(
         )
         schedules = sched_result.scalars().all()
         schedule_map = {}
+        comp_off_earned_dates = []
+        comp_off_used_dates = []
+        
         for sched in schedules:
             schedule_map[sched.date] = sched
+            # Track comp-off earned days
+            if sched.status == 'comp_off_earned':
+                comp_off_earned_dates.append(sched.date)
+        
+        # Get comp-off details for used days
+        compoff_details_result = await db.execute(
+            select(CompOffDetail).filter(
+                CompOffDetail.employee_id == employee.id,
+                CompOffDetail.earned_month.ilike(f"{year:04d}-{month:02d}%"),
+                CompOffDetail.type == 'used'
+            )
+        )
+        compoff_details = compoff_details_result.scalars().all()
+        for detail in compoff_details:
+            comp_off_used_dates.append(detail.date.date() if hasattr(detail.date, 'date') else detail.date)
         
         # Calculate leave dates
         leave_dates = set()
@@ -2106,8 +2307,8 @@ async def export_employee_monthly_attendance(
         
         ws['A3'] = f"Employee ID: {employee.employee_id}"
         
-        # Headers
-        headers = ['Date', 'Day', 'Assigned Shift', 'Check-In', 'Check-Out', 'Hours Worked', 'Break (min)', 'Overtime Hours', 'Status', 'Notes']
+        # Headers - updated to include comp-off columns
+        headers = ['Date', 'Day', 'Assigned Shift', 'Check-In', 'Check-Out', 'Hours Worked', 'Break (min)', 'Overtime Hours', 'Status', 'Comp-Off Earned', 'Comp-Off Used', 'Notes']
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=5, column=col)
             cell.value = header
@@ -2121,6 +2322,8 @@ async def export_employee_monthly_attendance(
         total_worked_hours = 0
         total_ot_hours = 0
         working_days_count = 0
+        comp_off_earned_count = 0
+        comp_off_used_count = 0
         
         for record in attendance_records:
             schedule = schedule_map.get(record.date)
@@ -2129,6 +2332,10 @@ async def export_employee_monthly_attendance(
                 assigned_shift = f"{schedule.start_time} - {schedule.end_time}"
             
             day_name = record.date.strftime('%A')
+            
+            # Check if comp-off earned or used on this date
+            comp_off_earned_str = '✓ Yes' if record.date in comp_off_earned_dates else '-'
+            comp_off_used_str = '✓ Yes' if record.date in comp_off_used_dates else '-'
             
             ws.cell(row=row, column=1).value = record.date.isoformat()
             ws.cell(row=row, column=2).value = day_name
@@ -2139,9 +2346,11 @@ async def export_employee_monthly_attendance(
             ws.cell(row=row, column=7).value = f"{record.break_minutes}" if record.break_minutes else '-'
             ws.cell(row=row, column=8).value = f"{record.overtime_hours:.2f}" if record.overtime_hours else '-'
             ws.cell(row=row, column=9).value = record.status or '-'
-            ws.cell(row=row, column=10).value = record.notes or '-'
+            ws.cell(row=row, column=10).value = comp_off_earned_str
+            ws.cell(row=row, column=11).value = comp_off_used_str
+            ws.cell(row=row, column=12).value = record.notes or '-'
             
-            for col in range(1, 11):
+            for col in range(1, 13):
                 ws.cell(row=row, column=col).border = border
             
             if record.worked_hours and record.worked_hours > 0:
@@ -2150,6 +2359,11 @@ async def export_employee_monthly_attendance(
             
             if record.overtime_hours:
                 total_ot_hours += record.overtime_hours
+            
+            if record.date in comp_off_earned_dates:
+                comp_off_earned_count += 1
+            if record.date in comp_off_used_dates:
+                comp_off_used_count += 1
             
             row += 1
         
@@ -2161,10 +2375,12 @@ async def export_employee_monthly_attendance(
         
         summary_row += 1
         
-        # Summary items
+        # Summary items - now including comp-off
         summary_items = [
             ("Working Days Worked", working_days_count),
             ("Leave Days Taken", len(leave_dates)),
+            ("Comp-Off Days Earned", comp_off_earned_count),
+            ("Comp-Off Days Used", comp_off_used_count),
             ("Total Hours Worked", f"{total_worked_hours:.2f}"),
             ("Total OT Hours", f"{total_ot_hours:.2f}"),
         ]
@@ -2191,7 +2407,9 @@ async def export_employee_monthly_attendance(
         ws.column_dimensions['G'].width = 12
         ws.column_dimensions['H'].width = 15
         ws.column_dimensions['I'].width = 12
-        ws.column_dimensions['J'].width = 20
+        ws.column_dimensions['J'].width = 14
+        ws.column_dimensions['K'].width = 14
+        ws.column_dimensions['L'].width = 20
         
         # Save to bytes
         file_bytes = io.BytesIO()
@@ -2291,7 +2509,9 @@ async def create_leave_request(
     leave_request = LeaveRequest(**leave_data.dict())
     db.add(leave_request)
     await db.commit()
-    await db.refresh(leave_request)
+    
+    # Refresh with eager loading of employee relationship
+    await db.refresh(leave_request, attribute_names=['employee'])
     
     return leave_request
 
@@ -2309,9 +2529,10 @@ async def list_leave_requests(
         employee = emp_result.scalar_one_or_none()
         if not employee:
             return []
-        
+
         result = await db.execute(
             select(LeaveRequest)
+            .options(selectinload(LeaveRequest.employee))
             .filter(LeaveRequest.employee_id == employee.id)
             .order_by(LeaveRequest.start_date)
         )
@@ -2320,9 +2541,10 @@ async def list_leave_requests(
         manager_dept = await get_manager_department(current_user, db)
         if not manager_dept:
             return []
-        
+
         result = await db.execute(
             select(LeaveRequest)
+            .options(selectinload(LeaveRequest.employee))
             .join(Employee)
             .filter(Employee.department_id == manager_dept)
             .order_by(LeaveRequest.start_date)
@@ -2330,9 +2552,32 @@ async def list_leave_requests(
     else:  # Admin
         result = await db.execute(
             select(LeaveRequest)
+            .options(selectinload(LeaveRequest.employee))
             .order_by(LeaveRequest.start_date)
         )
-    
+
+    return result.scalars().all()
+
+
+@app.get("/manager/leave-requests", response_model=List[LeaveRequestResponse])
+async def get_manager_leave_requests(
+    current_user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get all leave and comp-off requests for manager's department"""
+    manager_dept = await get_manager_department(current_user, db)
+    if not manager_dept:
+        return []
+
+    # Get all leave requests including comp-off for employees in manager's department
+    result = await db.execute(
+        select(LeaveRequest)
+        .options(selectinload(LeaveRequest.employee))
+        .join(Employee)
+        .filter(Employee.department_id == manager_dept)
+        .order_by(LeaveRequest.start_date.desc())
+    )
+
     return result.scalars().all()
 
 
@@ -2364,15 +2609,28 @@ async def get_leave_statistics(
         for leave in approved_leaves:
             if leave.leave_type == 'paid':
                 days = (leave.end_date - leave.start_date).days + 1
+                # Handle half-day leaves
+                if leave.duration_type and leave.duration_type.startswith('half_day'):
+                    days = 0.5
                 taken_paid += days
         
         total_paid_leave = employee.paid_leave_per_year  # Use employee's paid leave setting
         available_paid = max(0, total_paid_leave - taken_paid)
         
+        # Get comp-off tracking
+        comp_off_result = await db.execute(
+            select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
+        )
+        comp_off_tracking = comp_off_result.scalar_one_or_none()
+        comp_off_available = 0
+        if comp_off_tracking:
+            comp_off_available = comp_off_tracking.available_days
+        
         return {
             "total_paid_leave": total_paid_leave,
             "taken_paid_leave": taken_paid,
             "available_paid_leave": available_paid,
+            "comp_off_available": comp_off_available,
             "employee_name": f"{employee.first_name} {employee.last_name}"
         }
     else:
@@ -2420,21 +2678,68 @@ async def get_employee_leave_statistics(
     
     for leave in approved_leaves:
         days = (leave.end_date - leave.start_date).days + 1
+        # Handle half-day leaves
+        if leave.duration_type and leave.duration_type.startswith('half_day'):
+            days = 0.5
+
         month_key = leave.start_date.strftime('%Y-%m')  # Format: "2025-01"
         month_name = leave.start_date.strftime('%B %Y')  # Format: "January 2025"
-        
+
         if leave.leave_type == 'paid':
             taken_paid += days
             monthly_breakdown[month_key]['paid'] += days
         else:
             taken_unpaid += days
             monthly_breakdown[month_key]['unpaid'] += days
-        
+
         monthly_breakdown[month_key]['total'] += days
         monthly_breakdown[month_key]['month_name'] = month_name
     
     total_paid_leave = employee.paid_leave_per_year  # Use employee's paid leave setting
     available_paid = max(0, total_paid_leave - taken_paid)
+    
+    # Get comp-off tracking and details
+    comp_off_result = await db.execute(
+        select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
+    )
+    comp_off_tracking = comp_off_result.scalar_one_or_none()
+    comp_off_available = 0
+    comp_off_earned = 0
+    comp_off_used = 0
+    if comp_off_tracking:
+        comp_off_available = comp_off_tracking.available_days
+        comp_off_earned = comp_off_tracking.earned_days
+        comp_off_used = comp_off_tracking.used_days
+    
+    # Get detailed comp-off history
+    compoff_details_result = await db.execute(
+        select(CompOffDetail)
+        .filter(CompOffDetail.employee_id == employee.id)
+        .order_by(CompOffDetail.date.desc())
+    )
+    compoff_details = compoff_details_result.scalars().all()
+    
+    # Group comp-off by month
+    comp_off_monthly = defaultdict(lambda: {'earned': 0, 'used': 0, 'expired': 0})
+    for detail in compoff_details:
+        month_key = detail.earned_month or datetime.utcnow().strftime('%Y-%m')
+        if detail.type == 'earned':
+            comp_off_monthly[month_key]['earned'] += 1
+        elif detail.type == 'used':
+            comp_off_monthly[month_key]['used'] += 1
+        elif detail.type == 'expired':
+            comp_off_monthly[month_key]['expired'] += 1
+    
+    comp_off_monthly_list = []
+    for month_key in sorted(comp_off_monthly.keys(), reverse=True):
+        data = comp_off_monthly[month_key]
+        comp_off_monthly_list.append({
+            'month': month_key,
+            'earned': data['earned'],
+            'used': data['used'],
+            'expired': data['expired'],
+            'available': max(0, data['earned'] - data['used'] - data['expired'])
+        })
     
     # Convert monthly breakdown to list and sort by month
     monthly_list = []
@@ -2454,11 +2759,253 @@ async def get_employee_leave_statistics(
         "taken_unpaid_leave": taken_unpaid,
         "available_paid_leave": available_paid,
         "total_leaves_taken": taken_paid + taken_unpaid,
+        "comp_off_earned": comp_off_earned,
+        "comp_off_used": comp_off_used,
+        "comp_off_available": comp_off_available,
+        "comp_off_details": [{"date": d.date.isoformat(), "type": d.type, "month": d.earned_month, "notes": d.notes} for d in compoff_details[:10]],
+        "comp_off_monthly_breakdown": comp_off_monthly_list,
         "monthly_breakdown": monthly_list
     }
 
 
+@app.get("/manager/export-leave-compoff/{employee_id}")
+async def export_leave_compoff_report(
+    employee_id: str,
+    current_user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db)
+):
+    """Manager exports leave and comp-off report for an employee as Excel"""
+    from datetime import date, datetime
+    
+    # Get the manager record for current user
+    manager_result = await db.execute(select(Manager).filter(Manager.user_id == current_user.id))
+    manager = manager_result.scalar_one_or_none()
+    
+    if not manager:
+        raise HTTPException(status_code=403, detail="User is not a manager")
+    
+    # Get employee record by employee_id (string field)
+    emp_result = await db.execute(
+        select(Employee).filter(Employee.employee_id == employee_id, Employee.department_id == manager.department_id)
+    )
+    employee = emp_result.scalar_one_or_none()
+    
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found in your department")
+    
+    # Get all approved leave requests for this employee
+    leave_result = await db.execute(
+        select(LeaveRequest)
+        .filter(LeaveRequest.employee_id == employee.id, LeaveRequest.status == LeaveStatus.APPROVED)
+        .order_by(LeaveRequest.start_date)
+    )
+    approved_leaves = leave_result.scalars().all()
+    
+    # Get comp-off tracking and details
+    comp_off_result = await db.execute(
+        select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
+    )
+    comp_off_tracking = comp_off_result.scalar_one_or_none()
+    
+    compoff_details_result = await db.execute(
+        select(CompOffDetail)
+        .filter(CompOffDetail.employee_id == employee.id)
+        .order_by(CompOffDetail.date.desc())
+    )
+    compoff_details = compoff_details_result.scalars().all()
+    
+    # Create workbook with two sheets
+    wb = Workbook()
+    wb.remove(wb.active)  # Remove default sheet
+    
+    # Define styles
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    summary_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+    summary_font = Font(bold=True)
+    
+    # === SHEET 1: Leave Requests ===
+    ws_leave = wb.create_sheet("Leave Requests")
+    
+    # Title
+    ws_leave['A1'] = f"Leave Report - {employee.first_name} {employee.last_name}"
+    ws_leave['A1'].font = Font(bold=True, size=14)
+    ws_leave.merge_cells('A1:F1')
+    
+    ws_leave['A2'] = f"Employee ID: {employee.employee_id}"
+    ws_leave['A3'] = f"Generated on: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
+    
+    # Headers
+    headers = ['Leave ID', 'Start Date', 'End Date', 'Leave Type', 'Duration Type', 'Days', 'Status']
+    for col, header in enumerate(headers, 1):
+        cell = ws_leave.cell(row=5, column=col)
+        cell.value = header
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.border = border
+        cell.alignment = Alignment(horizontal='center')
+
+    # Data - all leaves
+    row = 6
+    total_paid = 0
+    total_unpaid = 0
+
+    for leave in approved_leaves:
+        days = (leave.end_date - leave.start_date).days + 1
+        # Handle half-day leaves
+        if leave.duration_type and leave.duration_type.startswith('half_day'):
+            days = 0.5
+
+        ws_leave.cell(row=row, column=1).value = leave.id
+        ws_leave.cell(row=row, column=2).value = leave.start_date.isoformat()
+        ws_leave.cell(row=row, column=3).value = leave.end_date.isoformat()
+        ws_leave.cell(row=row, column=4).value = leave.leave_type
+        ws_leave.cell(row=row, column=5).value = leave.duration_type or 'full_day'
+        ws_leave.cell(row=row, column=6).value = days
+        ws_leave.cell(row=row, column=7).value = leave.status
+
+        for col in range(1, 8):
+            ws_leave.cell(row=row, column=col).border = border
+
+        if leave.leave_type == 'paid':
+            total_paid += days
+        else:
+            total_unpaid += days
+
+        row += 1
+    
+    # Summary
+    summary_row = row + 2
+    ws_leave.cell(row=summary_row, column=1).value = "SUMMARY"
+    ws_leave.cell(row=summary_row, column=1).font = Font(bold=True, size=12)
+    
+    summary_row += 1
+    summary_items = [
+        ("Total Paid Leave Days", total_paid),
+        ("Total Unpaid Leave Days", total_unpaid),
+        ("Total Leave Days", total_paid + total_unpaid),
+    ]
+    
+    for label, value in summary_items:
+        ws_leave.cell(row=summary_row, column=1).value = label
+        ws_leave.cell(row=summary_row, column=1).font = summary_font
+        ws_leave.cell(row=summary_row, column=1).fill = summary_fill
+        ws_leave.cell(row=summary_row, column=1).border = border
+        
+        ws_leave.cell(row=summary_row, column=2).value = value
+        ws_leave.cell(row=summary_row, column=2).fill = summary_fill
+        ws_leave.cell(row=summary_row, column=2).border = border
+        
+        summary_row += 1
+    
+    # Adjust widths
+    ws_leave.column_dimensions['A'].width = 12
+    ws_leave.column_dimensions['B'].width = 14
+    ws_leave.column_dimensions['C'].width = 14
+    ws_leave.column_dimensions['D'].width = 14
+    ws_leave.column_dimensions['E'].width = 18
+    ws_leave.column_dimensions['F'].width = 10
+    ws_leave.column_dimensions['G'].width = 12
+    
+    # === SHEET 2: Comp-Off Details ===
+    ws_compoff = wb.create_sheet("Comp-Off Details")
+    
+    # Title
+    ws_compoff['A1'] = f"Comp-Off Report - {employee.first_name} {employee.last_name}"
+    ws_compoff['A1'].font = Font(bold=True, size=14)
+    ws_compoff.merge_cells('A1:G1')
+    
+    ws_compoff['A2'] = f"Employee ID: {employee.employee_id}"
+    ws_compoff['A3'] = f"Generated on: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
+    
+    # Headers
+    headers_compoff = ['Date', 'Type', 'Month', 'Status', 'Notes', 'Earned', 'Used']
+    for col, header in enumerate(headers_compoff, 1):
+        cell = ws_compoff.cell(row=5, column=col)
+        cell.value = header
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.border = border
+        cell.alignment = Alignment(horizontal='center')
+    
+    # Data - comp-off details
+    row = 6
+    for detail in compoff_details:
+        earned_str = '✓' if detail.type == 'earned' else ''
+        used_str = '✓' if detail.type == 'used' else ''
+        
+        ws_compoff.cell(row=row, column=1).value = detail.date.isoformat()
+        ws_compoff.cell(row=row, column=2).value = detail.type
+        ws_compoff.cell(row=row, column=3).value = detail.earned_month or '-'
+        ws_compoff.cell(row=row, column=4).value = 'Expired' if detail.expired_at else detail.type.title()
+        ws_compoff.cell(row=row, column=5).value = detail.notes or '-'
+        ws_compoff.cell(row=row, column=6).value = earned_str
+        ws_compoff.cell(row=row, column=7).value = used_str
+        
+        for col in range(1, 8):
+            ws_compoff.cell(row=row, column=col).border = border
+        
+        row += 1
+    
+    # Summary for comp-off
+    summary_row = row + 2
+    ws_compoff.cell(row=summary_row, column=1).value = "COMP-OFF SUMMARY"
+    ws_compoff.cell(row=summary_row, column=1).font = Font(bold=True, size=12)
+    
+    summary_row += 1
+    comp_off_earned = comp_off_tracking.earned_days if comp_off_tracking else 0
+    comp_off_used = comp_off_tracking.used_days if comp_off_tracking else 0
+    comp_off_available = comp_off_tracking.available_days if comp_off_tracking else 0
+    comp_off_expired = comp_off_tracking.expired_days if comp_off_tracking else 0
+    
+    summary_items_compoff = [
+        ("Total Comp-Off Earned", comp_off_earned),
+        ("Total Comp-Off Used", comp_off_used),
+        ("Comp-Off Available", comp_off_available),
+        ("Comp-Off Expired", comp_off_expired),
+    ]
+    
+    for label, value in summary_items_compoff:
+        ws_compoff.cell(row=summary_row, column=1).value = label
+        ws_compoff.cell(row=summary_row, column=1).font = summary_font
+        ws_compoff.cell(row=summary_row, column=1).fill = summary_fill
+        ws_compoff.cell(row=summary_row, column=1).border = border
+        
+        ws_compoff.cell(row=summary_row, column=2).value = value
+        ws_compoff.cell(row=summary_row, column=2).fill = summary_fill
+        ws_compoff.cell(row=summary_row, column=2).border = border
+        
+        summary_row += 1
+    
+    # Adjust widths
+    ws_compoff.column_dimensions['A'].width = 14
+    ws_compoff.column_dimensions['B'].width = 12
+    ws_compoff.column_dimensions['C'].width = 12
+    ws_compoff.column_dimensions['D'].width = 12
+    ws_compoff.column_dimensions['E'].width = 20
+    ws_compoff.column_dimensions['F'].width = 10
+    ws_compoff.column_dimensions['G'].width = 10
+    
+    # Save to bytes
+    file_bytes = io.BytesIO()
+    wb.save(file_bytes)
+    file_bytes.seek(0)
+    
+    return StreamingResponse(
+        iter([file_bytes.getvalue()]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=leave_compoff_report_{employee_id}_{date.today().isoformat()}.xlsx"}
+    )
+
+
 @app.post("/manager/approve-leave/{leave_id}")
+
 async def approve_leave(
     leave_id: int,
     approval_data: LeaveApproval,
@@ -2482,6 +3029,154 @@ async def approve_leave(
     leave_request.manager_id = manager.id
     leave_request.reviewed_at = datetime.utcnow()
     leave_request.review_notes = approval_data.review_notes
+
+    # Get employee for creating schedule entries
+    emp_result = await db.execute(
+        select(Employee).filter(Employee.id == leave_request.employee_id)
+    )
+    employee = emp_result.scalar_one_or_none()
+
+    # Create schedule entries for all leave types
+    if employee:
+        # Handle regular paid/unpaid leaves
+        if leave_request.leave_type in ['paid', 'unpaid']:
+            current_date = leave_request.start_date
+            while current_date <= leave_request.end_date:
+                # Check if schedule already exists for this date
+                existing = await db.execute(
+                    select(Schedule).filter(
+                        Schedule.employee_id == employee.id,
+                        Schedule.date == current_date,
+                        Schedule.status != 'cancelled'
+                    )
+                )
+                if not existing.scalar_one_or_none():
+                    # Determine status and times based on duration_type
+                    if leave_request.duration_type and leave_request.duration_type.startswith('half_day'):
+                        if leave_request.duration_type == 'half_day_morning':
+                            status = 'leave_half_morning'
+                            start_time = "00:00"
+                            end_time = "12:00"
+                            notes = f"Half Day Leave (Morning) - {leave_request.leave_type}"
+                        else:  # half_day_afternoon
+                            status = 'leave_half_afternoon'
+                            start_time = "12:00"
+                            end_time = "23:59"
+                            notes = f"Half Day Leave (Afternoon) - {leave_request.leave_type}"
+                    else:
+                        status = 'leave'
+                        start_time = "00:00"
+                        end_time = "23:59"
+                        notes = f"Full Day Leave - {leave_request.leave_type}"
+
+                    leave_schedule = Schedule(
+                        department_id=employee.department_id,
+                        employee_id=employee.id,
+                        role_id=employee.role_id,
+                        date=current_date,
+                        start_time=start_time,
+                        end_time=end_time,
+                        status=status,
+                        notes=notes
+                    )
+                    db.add(leave_schedule)
+
+                current_date += timedelta(days=1)
+
+    # If comp-off leave, validate expiry and create schedule entries
+    if leave_request.leave_type == 'comp_off' and employee:
+        # Check if comp-off is expired
+        check_date = datetime.utcnow()
+
+        # Validate each day can use comp-off from that month
+        current_check_date = leave_request.start_date
+        while current_check_date <= leave_request.end_date:
+            month_str = current_check_date.strftime("%Y-%m")
+            current_month_str = check_date.date().strftime("%Y-%m")
+
+            # Check if requesting to use comp-off from a past month
+            if month_str < current_month_str:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot use comp-off from {month_str}. Comp-off expires at end of the month earned."
+                )
+
+            current_check_date += timedelta(days=1)
+
+        # ===== CONSTRAINT VALIDATION for comp-off usage =====
+        # Validate 5-shifts-per-week and consecutive-shifts constraints for each comp-off day
+        validation_date = leave_request.start_date
+        while validation_date <= leave_request.end_date:
+            is_valid, error_msg = await validate_5_shifts_per_week(employee.id, validation_date, db)
+            if not is_valid:
+                raise HTTPException(status_code=400, detail=f"Cannot approve comp-off: {error_msg}")
+            
+            is_valid, error_msg = await validate_consecutive_shifts_limit(employee.id, validation_date, db)
+            if not is_valid:
+                raise HTTPException(status_code=400, detail=f"Cannot approve comp-off: {error_msg}")
+            
+            validation_date += timedelta(days=1)
+
+        # Create schedule entry for each day of comp-off
+        current_date = leave_request.start_date
+        comp_off_days = 0
+        while current_date <= leave_request.end_date:
+            # Delete any existing non-comp_off_taken schedules for this date to avoid conflicts
+            existing_result = await db.execute(
+                select(Schedule).filter(
+                    Schedule.employee_id == employee.id,
+                    Schedule.date == current_date,
+                    Schedule.status != 'comp_off_taken',
+                    Schedule.status != 'cancelled'
+                )
+            )
+            existing_schedules = existing_result.scalars().all()
+            
+            if existing_schedules:
+                for sched in existing_schedules:
+                    await db.delete(sched)
+            
+            # Create comp-off usage schedule (taking comp-off as leave)
+            comp_off_schedule = Schedule(
+                department_id=employee.department_id,
+                employee_id=employee.id,
+                role_id=employee.role_id,
+                date=current_date,
+                start_time=None,  # No shift time for comp-off usage - it's a full day off
+                end_time=None,
+                status="comp_off_taken",  # Status for comp-off taken (using earned comp-off)
+                notes=f"Comp-Off Taken: {leave_request.reason or 'Using earned comp-off'}"
+            )
+            db.add(comp_off_schedule)
+            comp_off_days += 1
+
+            current_date += timedelta(days=1)
+
+        # Update comp-off tracking: increment used_days and create detail records
+        tracking_result = await db.execute(
+            select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
+        )
+        tracking = tracking_result.scalar_one_or_none()
+
+        if tracking:
+            tracking.used_days += comp_off_days
+            tracking.available_days = tracking.earned_days - tracking.used_days
+            tracking.updated_at = datetime.utcnow()
+
+            # Create detail records for each used day
+            current_date = leave_request.start_date
+            while current_date <= leave_request.end_date:
+                month_str = current_date.strftime("%Y-%m")
+                detail = CompOffDetail(
+                    employee_id=employee.id,
+                    tracking_id=tracking.id,
+                    type='used',
+                    date=current_date,
+                    earned_month=month_str,
+                    notes=f"Used on {current_date.strftime('%Y-%m-%d')}"
+                )
+                db.add(detail)
+                current_date += timedelta(days=1)
 
     await db.commit()
 
@@ -2516,6 +3211,718 @@ async def reject_leave(
     await db.commit()
 
     return {"message": "Leave rejected"}
+
+
+# Comp-Off (Compensatory Off) Endpoints
+@app.post("/comp-off-requests", response_model=CompOffRequestResponse)
+async def create_comp_off_request(
+    comp_off_data: CompOffRequestCreate,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Employee or Manager creates comp-off request"""
+    # Determine target employee
+    if current_user.user_type == UserType.MANAGER:
+        # Manager creating comp-off for an employee
+        if not comp_off_data.employee_id:
+            raise HTTPException(status_code=400, detail="Employee ID is required for managers")
+
+        # Verify employee exists
+        emp_result = await db.execute(
+            select(Employee).filter(Employee.id == comp_off_data.employee_id)
+        )
+        employee = emp_result.scalar_one_or_none()
+
+        if not employee:
+            raise HTTPException(status_code=404, detail="Employee not found")
+
+        # Get manager record
+        manager_result = await db.execute(
+            select(Manager).filter(Manager.user_id == current_user.id)
+        )
+        manager = manager_result.scalar_one_or_none()
+
+        if not manager:
+            raise HTTPException(status_code=404, detail="Manager record not found")
+
+        target_employee_id = employee.id
+        manager_id = manager.id
+    else:
+        # Employee creating comp-off for themselves
+        emp_result = await db.execute(
+            select(Employee).filter(Employee.user_id == current_user.id)
+        )
+        employee = emp_result.scalar_one_or_none()
+
+        if not employee:
+            raise HTTPException(status_code=404, detail="Employee record not found")
+
+        # If employee_id provided, verify it's the current user
+        if comp_off_data.employee_id and comp_off_data.employee_id != employee.id:
+            raise HTTPException(status_code=403, detail="Can only request comp-off for yourself")
+
+        target_employee_id = employee.id
+        manager_id = None
+
+    # Check if a shift is already assigned on that date
+    shift_result = await db.execute(
+        select(Schedule).filter(
+            Schedule.employee_id == target_employee_id,
+            Schedule.date == comp_off_data.comp_off_date,
+            Schedule.status != 'cancelled'
+        )
+    )
+    existing_shift = shift_result.scalar_one_or_none()
+
+    if existing_shift:
+        raise HTTPException(
+            status_code=400,
+            detail="Shift already assigned on this date. Cannot apply comp-off when a shift is scheduled."
+        )
+
+    # Create comp-off request (pending approval for employees, can be auto-approved for managers)
+    comp_off_request = CompOffRequest(
+        employee_id=target_employee_id,
+        comp_off_date=comp_off_data.comp_off_date,
+        reason=comp_off_data.reason,
+        status=LeaveStatus.PENDING,
+        manager_id=manager_id
+    )
+
+    db.add(comp_off_request)
+    await db.commit()
+    
+    # Reload with eager loading of employee relationship
+    await db.refresh(comp_off_request, attribute_names=['employee'])
+
+    return comp_off_request
+
+
+@app.get("/comp-off-requests", response_model=List[CompOffRequestResponse])
+async def list_comp_off_requests(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """List comp-off requests"""
+    if current_user.user_type == UserType.EMPLOYEE:
+        # Employees see only their own requests
+        emp_result = await db.execute(
+            select(Employee).filter(Employee.user_id == current_user.id)
+        )
+        employee = emp_result.scalar_one_or_none()
+
+        if not employee:
+            return []
+
+        result = await db.execute(
+            select(CompOffRequest)
+            .options(selectinload(CompOffRequest.employee))
+            .filter(CompOffRequest.employee_id == employee.id)
+            .order_by(CompOffRequest.comp_off_date.desc())
+        )
+    else:
+        # Managers/Admins see all requests
+        result = await db.execute(
+            select(CompOffRequest)
+            .options(selectinload(CompOffRequest.employee))
+            .order_by(CompOffRequest.comp_off_date.desc())
+        )
+
+    return result.scalars().all()
+
+
+@app.get("/comp-off-tracking", response_model=CompOffTrackingResponse)
+async def get_comp_off_tracking(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get comp-off balance for the current employee"""
+    emp_result = await db.execute(
+        select(Employee).filter(Employee.user_id == current_user.id)
+    )
+    employee = emp_result.scalar_one_or_none()
+    
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    # Get or create comp-off tracking record
+    tracking_result = await db.execute(
+        select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
+    )
+    tracking = tracking_result.scalar_one_or_none()
+    
+    if not tracking:
+        # Create new tracking record
+        tracking = CompOffTracking(employee_id=employee.id)
+        db.add(tracking)
+        await db.commit()
+        await db.refresh(tracking)
+    
+    return tracking
+
+
+@app.get("/comp-off/balance")
+async def get_comp_off_balance(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get comp-off balance for the current employee (returns simple balance format)"""
+    emp_result = await db.execute(
+        select(Employee).filter(Employee.user_id == current_user.id)
+    )
+    employee = emp_result.scalar_one_or_none()
+    
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    # Get or create comp-off tracking record
+    tracking_result = await db.execute(
+        select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
+    )
+    tracking = tracking_result.scalar_one_or_none()
+    
+    if not tracking:
+        # Create new tracking record
+        tracking = CompOffTracking(employee_id=employee.id)
+        db.add(tracking)
+        await db.commit()
+        await db.refresh(tracking)
+    
+    return {"balance": tracking.available_days}
+
+
+@app.get("/comp-off/monthly-breakdown")
+async def get_monthly_comp_off_breakdown(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get month-wise comp-off breakdown showing earned and used days"""
+    emp_result = await db.execute(
+        select(Employee).filter(Employee.user_id == current_user.id)
+    )
+    employee = emp_result.scalar_one_or_none()
+    
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    # Get all comp-off details for this employee
+    details_result = await db.execute(
+        select(CompOffDetail).filter(
+            CompOffDetail.employee_id == employee.id
+        ).order_by(CompOffDetail.date.desc())
+    )
+    details = details_result.scalars().all()
+    
+    # Group by month
+    monthly_data = defaultdict(lambda: {"earned": 0, "used": 0, "expired": 0, "details": []})
+    
+    for detail in details:
+        month = detail.earned_month or datetime.utcnow().strftime("%Y-%m")
+        monthly_data[month]["details"].append(detail)
+        
+        if detail.type == 'earned':
+            monthly_data[month]["earned"] += 1
+        elif detail.type == 'used':
+            monthly_data[month]["used"] += 1
+        elif detail.type == 'expired':
+            monthly_data[month]["expired"] += 1
+    
+    # Calculate available for each month
+    result = []
+    for month_str in sorted(monthly_data.keys(), reverse=True):
+        data = monthly_data[month_str]
+        available = data["earned"] - data["used"] - data["expired"]
+        
+        # Get last day of month for expiry_date
+        year, month = map(int, month_str.split('-'))
+        last_day = monthrange(year, month)[1]
+        expiry_date = date(year, month, last_day)
+        
+        result.append({
+            "month": month_str,
+            "earned": data["earned"],
+            "used": data["used"],
+            "available": max(0, available),
+            "expired": data["expired"],
+            "expiry_date": expiry_date,
+            "details": data["details"]
+        })
+    
+    return {
+        "employee_id": employee.id,
+        "employee_name": f"{employee.first_name} {employee.last_name}",
+        "monthly_breakdown": result
+    }
+
+
+@app.get("/comp-off/validate-available/{month}")
+async def validate_comp_off_available(
+    month: str,  # Format: "2025-12"
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Check if comp-off is available and not expired for a given month"""
+    emp_result = await db.execute(
+        select(Employee).filter(Employee.user_id == current_user.id)
+    )
+    employee = emp_result.scalar_one_or_none()
+    
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    # Parse month
+    try:
+        year, month_num = map(int, month.split('-'))
+    except:
+        raise HTTPException(status_code=400, detail="Invalid month format. Use YYYY-MM")
+    
+    # Check if requested month is current or past
+    current_date = datetime.utcnow()
+    requested_date = date(year, month_num, 1)
+    current_month_date = current_date.date().replace(day=1)
+    
+    if requested_date < current_month_date:
+        # Past month - cannot use expired comp-off
+        last_day = monthrange(year, month_num)[1]
+        expiry_date = date(year, month_num, last_day)
+        return {
+            "available": 0,
+            "reason": f"Comp-off expired on {expiry_date}. Cannot use comp-off from past months.",
+            "month": month
+        }
+    
+    # Get details for the requested month
+    details_result = await db.execute(
+        select(CompOffDetail).filter(
+            and_(
+                CompOffDetail.employee_id == employee.id,
+                CompOffDetail.earned_month == month,
+                CompOffDetail.type.in_(['earned'])
+            )
+        )
+    )
+    earned_records = details_result.scalars().all()
+    
+    # Count used in same month
+    used_result = await db.execute(
+        select(CompOffDetail).filter(
+            and_(
+                CompOffDetail.employee_id == employee.id,
+                CompOffDetail.earned_month == month,
+                CompOffDetail.type.in_(['used'])
+            )
+        )
+    )
+    used_records = used_result.scalars().all()
+    
+    available = len(earned_records) - len(used_records)
+    
+    return {
+        "available": max(0, available),
+        "earned": len(earned_records),
+        "used": len(used_records),
+        "month": month,
+        "is_current_month": requested_date.month == current_date.month and requested_date.year == current_date.year
+    }
+
+@app.post("/manager/approve-comp-off/{comp_off_id}")
+async def approve_comp_off(
+    comp_off_id: int,
+    approval_data: LeaveApproval,
+    current_user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db)
+):
+    """Manager approves comp-off request and creates schedule for that day"""
+    result = await db.execute(
+        select(CompOffRequest).filter(CompOffRequest.id == comp_off_id)
+    )
+    comp_off = result.scalar_one_or_none()
+    
+    if not comp_off:
+        raise HTTPException(status_code=404, detail="Comp-off request not found")
+    
+    # Get the manager record
+    manager_result = await db.execute(
+        select(Manager).filter(Manager.user_id == current_user.id)
+    )
+    manager = manager_result.scalar_one_or_none()
+    
+    if not manager:
+        raise HTTPException(status_code=403, detail="User is not a manager")
+    
+    # Get employee details
+    employee_result = await db.execute(
+        select(Employee).filter(Employee.id == comp_off.employee_id)
+    )
+    employee = employee_result.scalar_one_or_none()
+    
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    # Approve the comp-off request
+    comp_off.status = LeaveStatus.APPROVED
+    comp_off.manager_id = manager.id
+    comp_off.reviewed_at = datetime.utcnow()
+    comp_off.review_notes = approval_data.review_notes
+    
+    # Get a shift for the employee's role to use for the comp-off day
+    # Priority 1: Check what day of week the comp-off is
+    comp_off_day_name = comp_off.comp_off_date.strftime('%A')  # e.g., 'Monday', 'Friday'
+    
+    # Priority 2: Try to get shift times from same week (Mon-Fri) to match their typical shift
+    week_start = comp_off.comp_off_date - timedelta(days=comp_off.comp_off_date.weekday())
+    week_end = week_start + timedelta(days=6)
+    
+    shift_id = None
+    start_time = None
+    end_time = None
+    
+    # Try to find a shift from the same week first
+    week_shift_result = await db.execute(
+        select(Schedule)
+        .filter(
+            Schedule.employee_id == employee.id,
+            Schedule.date >= week_start,
+            Schedule.date <= week_end,
+            Schedule.date != comp_off.comp_off_date,  # Exclude the comp-off date itself
+            Schedule.status.in_(['scheduled', 'completed', 'comp_off_earned'])  # Only work shifts
+        )
+        .order_by(Schedule.date)  # Get any weekday shift from this week
+        .limit(1)
+    )
+    week_schedule = week_shift_result.scalar_one_or_none()
+    
+    if week_schedule and week_schedule.start_time and week_schedule.end_time:
+        shift_id = week_schedule.shift_id
+        start_time = week_schedule.start_time
+        end_time = week_schedule.end_time
+        print(f"[DEBUG] ✓ Found week shift from {week_schedule.date} ({start_time}-{end_time}) for comp-off on {comp_off.comp_off_date}", flush=True)
+    
+    # Fallback: Get shift for the same day of week from previous weeks
+    if not start_time or not end_time:
+        same_day_result = await db.execute(
+            select(Schedule)
+            .filter(
+                Schedule.employee_id == employee.id,
+                func.to_char(Schedule.date, 'Day').ilike(f'%{comp_off_day_name}%'),
+                Schedule.status.in_(['scheduled', 'completed', 'comp_off_earned'])
+            )
+            .order_by(Schedule.date.desc())
+            .limit(1)
+        )
+        same_day_schedule = same_day_result.scalar_one_or_none()
+        
+        if same_day_schedule and same_day_schedule.start_time and same_day_schedule.end_time:
+            shift_id = same_day_schedule.shift_id
+            start_time = same_day_schedule.start_time
+            end_time = same_day_schedule.end_time
+            print(f"[DEBUG] ✓ Found same-day ({comp_off_day_name}) shift from {same_day_schedule.date} ({start_time}-{end_time}) for comp-off on {comp_off.comp_off_date}", flush=True)
+    
+    # Fallback: Get most recent shift
+    if not start_time or not end_time:
+        recent_shift_result = await db.execute(
+            select(Schedule)
+            .filter(
+                Schedule.employee_id == employee.id,
+                Schedule.status.in_(['scheduled', 'completed', 'comp_off_earned'])
+            )
+            .order_by(Schedule.date.desc())
+            .limit(1)
+        )
+        recent_schedule = recent_shift_result.scalar_one_or_none()
+        
+        if recent_schedule and recent_schedule.start_time and recent_schedule.end_time:
+            shift_id = recent_schedule.shift_id
+            start_time = recent_schedule.start_time
+            end_time = recent_schedule.end_time
+            print(f"[DEBUG] ✓ Found recent shift from {recent_schedule.date} ({start_time}-{end_time}) for comp-off on {comp_off.comp_off_date}", flush=True)
+    
+    # Fallback: Get first shift for employee's role
+    if not start_time or not end_time:
+        shift_result = await db.execute(
+            select(Shift)
+            .filter(Shift.role_id == employee.role_id)
+            .limit(1)
+        )
+        shift = shift_result.scalar_one_or_none()
+        if shift and shift.start_time and shift.end_time:
+            shift_id = shift.id
+            start_time = shift.start_time
+            end_time = shift.end_time
+            print(f"[DEBUG] ✓ Using role default shift ({start_time}-{end_time}) for comp-off on {comp_off.comp_off_date}", flush=True)
+    
+    # Fallback to safe defaults
+    if not start_time or not end_time:
+        start_time = "09:00"
+        end_time = "18:00"
+        print(f"[DEBUG] Using default times ({start_time}-{end_time}) for comp-off on {comp_off.comp_off_date}", flush=True)
+    
+    # ===== CONSTRAINT VALIDATION for comp-off earned =====
+    # Validate 5-shifts-per-week and consecutive-shifts constraints
+    is_valid, error_msg = await validate_5_shifts_per_week(employee.id, comp_off.comp_off_date, db)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=f"Cannot approve comp-off: {error_msg}")
+    
+    is_valid, error_msg = await validate_consecutive_shifts_limit(employee.id, comp_off.comp_off_date, db)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=f"Cannot approve comp-off: {error_msg}")
+    
+    # Create a schedule entry for the comp-off day
+    new_schedule = Schedule(
+        department_id=employee.department_id,
+        employee_id=employee.id,
+        role_id=employee.role_id,
+        shift_id=shift_id,
+        date=comp_off.comp_off_date,
+        start_time=start_time,
+        end_time=end_time,
+        status="comp_off_earned",  # Status for comp-off earned (worked on non-shift day)
+        notes=f"Comp-Off Earned: {comp_off.reason or 'Worked on non-shift day'}"
+    )
+    
+    db.add(new_schedule)
+    db.add(comp_off)
+    await db.flush()  # Flush to get IDs
+    
+    comp_off.schedule_id = new_schedule.id
+    
+    # Get current month-year for earned_date tracking
+    current_date = datetime.utcnow()
+    earned_month = current_date.strftime("%Y-%m")
+    
+    # Update comp-off tracking: increment earned_days (employee earned a comp-off day)
+    tracking_result = await db.execute(
+        select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
+    )
+    tracking = tracking_result.scalar_one_or_none()
+    
+    if tracking:
+        tracking.earned_days += 1
+        tracking.earned_date = current_date
+        tracking.available_days = tracking.earned_days - tracking.used_days
+        tracking.updated_at = datetime.utcnow()
+        db.add(tracking)
+    else:
+        # Create tracking if it doesn't exist
+        tracking = CompOffTracking(
+            employee_id=employee.id,
+            earned_days=1,
+            used_days=0,
+            available_days=1,
+            earned_date=current_date
+        )
+        db.add(tracking)
+        await db.flush()  # Flush to get ID
+    
+    # Add detail record for audit trail (earned)
+    detail = CompOffDetail(
+        employee_id=employee.id,
+        tracking_id=tracking.id,
+        type='earned',
+        date=comp_off.comp_off_date,
+        earned_month=comp_off.comp_off_date.strftime("%Y-%m"),
+        notes=f"Earned by working on {comp_off.comp_off_date.strftime('%Y-%m-%d')}"
+    )
+    db.add(detail)
+    
+    # Commit all changes
+    await db.commit()
+    
+    return {"message": "Comp-off approved successfully"}
+
+
+@app.post("/manager/reject-comp-off/{comp_off_id}")
+async def reject_comp_off(
+    comp_off_id: int,
+    approval_data: LeaveApproval,
+    current_user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db)
+):
+    """Manager rejects comp-off request"""
+    result = await db.execute(
+        select(CompOffRequest).filter(CompOffRequest.id == comp_off_id)
+    )
+    comp_off = result.scalar_one_or_none()
+    
+    if not comp_off:
+        raise HTTPException(status_code=404, detail="Comp-off request not found")
+    
+    # Get the manager record
+    manager_result = await db.execute(
+        select(Manager).filter(Manager.user_id == current_user.id)
+    )
+    manager = manager_result.scalar_one_or_none()
+    
+    if not manager:
+        raise HTTPException(status_code=403, detail="User is not a manager")
+    
+    comp_off.status = LeaveStatus.REJECTED
+    comp_off.manager_id = manager.id
+    comp_off.reviewed_at = datetime.utcnow()
+    comp_off.review_notes = approval_data.review_notes
+    
+    await db.commit()
+    
+    return {"message": "Comp-off rejected"}
+
+
+# Comp-Off Statistics Endpoints
+@app.get("/comp-off-statistics")
+async def get_comp_off_statistics(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get comp-off statistics for current employee"""
+    if current_user.user_type != UserType.EMPLOYEE:
+        raise HTTPException(status_code=403, detail="Only employees can access their comp-off statistics")
+    
+    # Get employee record
+    emp_result = await db.execute(
+        select(Employee).filter(Employee.user_id == current_user.id)
+    )
+    employee = emp_result.scalar_one_or_none()
+    
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    # Get comp-off tracking
+    tracking_result = await db.execute(
+        select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
+    )
+    tracking = tracking_result.scalar_one_or_none()
+    
+    if not tracking:
+        # Return default if no tracking exists
+        return {
+            "earned_days": 0,
+            "used_days": 0,
+            "available_days": 0,
+            "employee_name": f"{employee.first_name} {employee.last_name}"
+        }
+    
+    return {
+        "earned_days": tracking.earned_days,
+        "used_days": tracking.used_days,
+        "available_days": max(0, tracking.earned_days - tracking.used_days),
+        "employee_name": f"{employee.first_name} {employee.last_name}"
+    }
+
+
+@app.get("/comp-off/export/employee")
+async def export_comp_off_report(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Export comp-off records as Excel for current employee"""
+    if current_user.user_type != UserType.EMPLOYEE:
+        raise HTTPException(status_code=403, detail="Only employees can download their comp-off reports")
+    
+    # Get employee
+    emp_result = await db.execute(
+        select(Employee).filter(Employee.user_id == current_user.id)
+    )
+    employee = emp_result.scalar_one_or_none()
+    
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    # Get comp-off requests for this employee
+    comp_off_result = await db.execute(
+        select(CompOffRequest)
+        .filter(CompOffRequest.employee_id == employee.id)
+        .order_by(CompOffRequest.comp_off_date.desc())
+    )
+    comp_off_requests = comp_off_result.scalars().all()
+    
+    # Get comp-off tracking
+    tracking_result = await db.execute(
+        select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
+    )
+    tracking = tracking_result.scalar_one_or_none()
+    
+    # Create workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Comp-Off Report"
+    
+    # Header styles
+    header_fill = PatternFill(start_color="10b981", end_color="10b981", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    
+    # Title
+    ws['A1'] = f"Comp-Off Report"
+    ws['A1'].font = Font(bold=True, size=14)
+    ws.merge_cells('A1:E1')
+    
+    # Employee Info
+    ws['A3'] = "Employee Name:"
+    ws['B3'] = f"{employee.first_name} {employee.last_name}"
+    ws['D3'] = "Employee ID:"
+    ws['E3'] = employee.employee_id
+    
+    ws['A4'] = "Department:"
+    ws['B4'] = employee.department.name if employee.department else "N/A"
+    ws['D4'] = "Report Date:"
+    ws['E4'] = datetime.now().strftime('%Y-%m-%d')
+    
+    # Summary Section
+    ws['A6'] = "Comp-Off Summary"
+    ws['A6'].font = Font(bold=True, size=12)
+    
+    ws['A7'] = "Earned Days:"
+    ws['B7'] = tracking.earned_days if tracking else 0
+    ws['D7'] = "Used Days:"
+    ws['E7'] = tracking.used_days if tracking else 0
+    
+    ws['A8'] = "Available Days:"
+    ws['B8'] = max(0, (tracking.earned_days - tracking.used_days)) if tracking else 0
+    
+    # Detailed Records
+    ws['A10'] = "Comp-Off Requests"
+    ws['A10'].font = Font(bold=True, size=11)
+    
+    # Headers
+    headers = ['Date', 'Status', 'Reason', 'Manager Notes', 'Request Date']
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=11, column=col)
+        cell.value = header
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.border = border
+    
+    # Data rows
+    row = 12
+    for request in comp_off_requests:
+        ws.cell(row=row, column=1).value = request.comp_off_date.strftime('%Y-%m-%d')
+        ws.cell(row=row, column=2).value = request.status.upper()
+        ws.cell(row=row, column=3).value = request.reason or '-'
+        ws.cell(row=row, column=4).value = request.review_notes or '-'
+        ws.cell(row=row, column=5).value = request.created_at.strftime('%Y-%m-%d')
+        row += 1
+    
+    # Adjust column widths
+    ws.column_dimensions['A'].width = 15
+    ws.column_dimensions['B'].width = 15
+    ws.column_dimensions['C'].width = 20
+    ws.column_dimensions['D'].width = 20
+    ws.column_dimensions['E'].width = 15
+    
+    # Create file
+    file_bytes = io.BytesIO()
+    wb.save(file_bytes)
+    file_bytes.seek(0)
+    
+    return StreamingResponse(
+        iter([file_bytes.getvalue()]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=comp_off_report_{employee.employee_id}_{datetime.now().strftime('%Y%m%d')}.xlsx"}
+    )
 
 
 # Messages
@@ -2779,55 +4186,16 @@ async def create_schedule(
     except:
         shift_hours = 0
     
-    # CONSTRAINT 1: Check if assigning more than 5 shifts per week
-    week_start = schedule_data.date - timedelta(days=schedule_data.date.weekday())
-    week_end = week_start + timedelta(days=6)
+    # ===== CONSTRAINT VALIDATION =====
+    # CONSTRAINT 1: Check 5 shifts per week limit
+    is_valid, error_msg = await validate_5_shifts_per_week(schedule_data.employee_id, schedule_data.date, db)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=error_msg)
     
-    week_count_result = await db.execute(
-        select(func.count(Schedule.id)).filter(
-            Schedule.employee_id == schedule_data.employee_id,
-            Schedule.date >= week_start,
-            Schedule.date <= week_end
-        )
-    )
-    existing_shifts_count = week_count_result.scalar() or 0
-    
-    if existing_shifts_count >= 5:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Cannot assign more than 5 shifts per week. Employee already has {existing_shifts_count} shifts this week (max: 5)"
-        )
-    
-    # ===== NEW CONSTRAINT: Check 5 consecutive shifts limit =====
-    # Check if this new shift would create more than 5 consecutive shifts
-    week_schedules_check = await db.execute(
-        select(Schedule).filter(
-            Schedule.employee_id == schedule_data.employee_id,
-            Schedule.date >= week_start,
-            Schedule.date <= week_end
-        ).order_by(Schedule.date)
-    )
-    existing_week_schedules = week_schedules_check.scalars().all()
-    
-    # Collect all dates including the new one
-    all_dates = sorted([s.date for s in existing_week_schedules] + [schedule_data.date])
-    all_dates = list(dict.fromkeys(all_dates))  # Remove duplicates while preserving order
-    
-    # Find the longest consecutive sequence
-    max_consecutive = 1
-    current_consecutive = 1
-    for i in range(1, len(all_dates)):
-        if (all_dates[i] - all_dates[i-1]).days == 1:
-            current_consecutive += 1
-            max_consecutive = max(max_consecutive, current_consecutive)
-        else:
-            current_consecutive = 1
-    
-    if max_consecutive > 5:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Cannot create {max_consecutive} consecutive shifts. Maximum allowed is 5 consecutive shifts."
-        )
+    # CONSTRAINT 2: Check 5 consecutive shifts limit
+    is_valid, error_msg = await validate_consecutive_shifts_limit(schedule_data.employee_id, schedule_data.date, db)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=error_msg)
     
     # Check if this creates overtime (exceeds 8hrs/day)
     overtime_required = False
@@ -3002,42 +4370,19 @@ async def update_schedule(
         if not manager_dept or schedule.department_id != manager_dept:
             raise HTTPException(status_code=403, detail="Can only edit schedules in your department")
 
-    # ===== NEW: Validate consecutive shifts when changing date =====
+    # ===== CONSTRAINT VALIDATION when changing date =====
     if schedule_data.date and schedule_data.date != schedule.date:
         new_date = schedule_data.date if isinstance(schedule_data.date, date) else datetime.strptime(schedule_data.date, '%Y-%m-%d').date()
         
-        week_start = new_date - timedelta(days=new_date.weekday())
-        week_end = week_start + timedelta(days=6)
+        # CONSTRAINT 1: Check 5 shifts per week limit
+        is_valid, error_msg = await validate_5_shifts_per_week(schedule.employee_id, new_date, db, exclude_schedule_id=schedule_id)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_msg)
         
-        week_schedules_check = await db.execute(
-            select(Schedule).filter(
-                Schedule.employee_id == schedule.employee_id,
-                Schedule.date >= week_start,
-                Schedule.date <= week_end,
-                Schedule.id != schedule_id  # Exclude current schedule
-            ).order_by(Schedule.date)
-        )
-        existing_week_schedules = week_schedules_check.scalars().all()
-        
-        # Collect all dates including the new one
-        all_dates = sorted([s.date for s in existing_week_schedules] + [new_date])
-        all_dates = list(dict.fromkeys(all_dates))  # Remove duplicates while preserving order
-        
-        # Find the longest consecutive sequence
-        max_consecutive = 1
-        current_consecutive = 1
-        for i in range(1, len(all_dates)):
-            if (all_dates[i] - all_dates[i-1]).days == 1:
-                current_consecutive += 1
-                max_consecutive = max(max_consecutive, current_consecutive)
-            else:
-                current_consecutive = 1
-        
-        if max_consecutive > 5:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot create {max_consecutive} consecutive shifts. Maximum allowed is 5 consecutive shifts."
-            )
+        # CONSTRAINT 2: Check 5 consecutive shifts limit
+        is_valid, error_msg = await validate_consecutive_shifts_limit(schedule.employee_id, new_date, db, exclude_schedule_id=schedule_id)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_msg)
 
     for key, value in schedule_data.dict(exclude_unset=True).items():
         # Convert string date to date object if needed
@@ -3135,40 +4480,57 @@ async def generate_schedules(
                 "schedules": []
             }
         
-        # If regenerate is True, delete existing schedules first
+        # If regenerate is True, delete existing schedules first (but PRESERVE regular leaves)
         if existing_schedules and regenerate:
             print(f"[DEBUG] Regenerating - deleting {len(existing_schedules)} existing schedules", flush=True)
             
-            # First, nullify schedule_id in check_ins table for affected date range
-            # to avoid foreign key constraint violations
-            affected_schedules_result = await db.execute(
+            # Get 'scheduled' and 'comp_off_taken' schedules to delete (will recreate them)
+            # Preserve: 'leave', 'leave_half_morning', 'leave_half_afternoon', 'comp_off_earned'
+            schedules_to_delete_result = await db.execute(
                 select(Schedule.id)
                 .filter(
                     Schedule.department_id == department_id,
                     Schedule.date >= start_date,
-                    Schedule.date <= end_date
+                    Schedule.date <= end_date,
+                    Schedule.status.in_(['scheduled', 'comp_off_taken'])  # Delete work shifts and comp-off usage, recreate them
                 )
             )
-            affected_schedule_ids = affected_schedules_result.scalars().all()
+            schedules_to_delete_ids = schedules_to_delete_result.scalars().all()
             
-            if affected_schedule_ids:
+            if schedules_to_delete_ids:
+                print(f"[DEBUG] Deleting {len(schedules_to_delete_ids)} work shift and comp-off usage schedules", flush=True)
+                
+                # Delete Attendance records first (has FK to schedules)
+                await db.execute(
+                    delete(Attendance)
+                    .where(Attendance.schedule_id.in_(schedules_to_delete_ids))
+                )
+                
+                # Nullify in CheckInOut table
                 await db.execute(
                     update(CheckInOut)
-                    .where(CheckInOut.schedule_id.in_(affected_schedule_ids))
+                    .where(CheckInOut.schedule_id.in_(schedules_to_delete_ids))
+                    .values(schedule_id=None)
+                )
+                # Nullify in CompOffRequest table
+                await db.execute(
+                    update(CompOffRequest)
+                    .where(CompOffRequest.schedule_id.in_(schedules_to_delete_ids))
                     .values(schedule_id=None)
                 )
             
-            # Now delete the schedules
+            # Now delete the work shift and comp-off usage schedules
             await db.execute(
                 delete(Schedule)
                 .filter(
                     Schedule.department_id == department_id,
                     Schedule.date >= start_date,
-                    Schedule.date <= end_date
+                    Schedule.date <= end_date,
+                    Schedule.status.in_(['scheduled', 'comp_off_taken'])  # Delete work shifts and comp-off usage
                 )
             )
             await db.commit()
-            feedback = [f"Cleared {len(existing_schedules)} existing schedules. Generating new schedule..."]
+            feedback = [f"Cleared work shift and comp-off usage schedules. Generating new schedule (preserving regular leaves)..."]
         else:
             feedback = []
 
@@ -3343,9 +4705,19 @@ async def generate_schedules(
                     )
                     leave_request = leave_result.scalars().first()
                     
-                    if leave_request:
-                        # Employee is on approved leave - create a LEAVE schedule entry
-                        # (This counts as one of their working days, but marked as leave)
+                    # Also check for approved comp-off requests
+                    comp_off_result = await db.execute(
+                        select(CompOffRequest)
+                        .filter(
+                            CompOffRequest.employee_id == emp.id,
+                            CompOffRequest.comp_off_date == current_date,
+                            CompOffRequest.status == LeaveStatus.APPROVED
+                        )
+                    )
+                    comp_off_request = comp_off_result.scalars().first()
+                    
+                    if leave_request or comp_off_request:
+                        # Employee is on approved leave or comp-off - create appropriate schedule entry
                         existing_today = await db.execute(
                             select(Schedule)
                             .filter(
@@ -3354,23 +4726,97 @@ async def generate_schedules(
                             )
                         )
                         if not existing_today.scalars().first():
-                            # No schedule exists for this day yet - create a leave entry
-                            print(f"[DEBUG] ✓ {emp.first_name} is on approved leave on {current_date}, creating LEAVE schedule", flush=True)
+                            # Determine status based on type
+                            if comp_off_request:
+                                # This is a comp-off earned day (employee worked, earned comp-off)
+                                # Get the correct shift time for this employee
+                                leave_status = 'comp_off_earned'
+                                
+                                # Try to get shift times from same week first
+                                week_start = current_date - timedelta(days=current_date.weekday())
+                                week_end = week_start + timedelta(days=6)
+                                
+                                week_shift = await db.execute(
+                                    select(Schedule)
+                                    .filter(
+                                        Schedule.employee_id == emp.id,
+                                        Schedule.date >= week_start,
+                                        Schedule.date <= week_end,
+                                        Schedule.date != current_date,
+                                        Schedule.status.in_(['scheduled', 'completed', 'comp_off_earned'])
+                                    )
+                                    .order_by(Schedule.date)
+                                    .limit(1)
+                                )
+                                week_sched = week_shift.scalar_one_or_none()
+                                
+                                if week_sched and week_sched.start_time and week_sched.end_time:
+                                    start_time = week_sched.start_time
+                                    end_time = week_sched.end_time
+                                else:
+                                    # Fallback to same day of week from previous weeks
+                                    day_name = current_date.strftime('%A')
+                                    same_day = await db.execute(
+                                        select(Schedule)
+                                        .filter(
+                                            Schedule.employee_id == emp.id,
+                                            func.to_char(Schedule.date, 'Day').ilike(f'%{day_name}%'),
+                                            Schedule.status.in_(['scheduled', 'completed', 'comp_off_earned'])
+                                        )
+                                        .order_by(Schedule.date.desc())
+                                        .limit(1)
+                                    )
+                                    same_day_sched = same_day.scalar_one_or_none()
+                                    
+                                    if same_day_sched and same_day_sched.start_time and same_day_sched.end_time:
+                                        start_time = same_day_sched.start_time
+                                        end_time = same_day_sched.end_time
+                                    else:
+                                        # Default fallback
+                                        start_time = "00:00"
+                                        end_time = "23:59"
+                                
+                                leave_notes = f"Comp-Off Earned: {comp_off_request.reason or 'Worked on non-shift day'}"
+                            elif leave_request.leave_type == 'comp_off':
+                                # This is using comp-off (taking the earned comp-off) - no shift times, full day off
+                                leave_status = 'comp_off_taken'
+                                start_time = None  # No shift time for comp-off usage
+                                end_time = None
+                                leave_notes = f"Comp-Off Taken: {leave_request.reason or 'Using earned comp-off'}"
+                            elif leave_request.duration_type == 'half_day_morning':
+                                leave_status = 'leave_half_morning'
+                                start_time = "00:00"
+                                end_time = "12:00"
+                                leave_notes = f"Half Day Leave (Morning) - {leave_request.leave_type}"
+                            elif leave_request.duration_type == 'half_day_afternoon':
+                                leave_status = 'leave_half_afternoon'
+                                start_time = "12:00"
+                                end_time = "23:59"
+                                leave_notes = f"Half Day Leave (Afternoon) - {leave_request.leave_type}"
+                            else:
+                                leave_status = 'leave'
+                                start_time = "00:00"
+                                end_time = "23:59"
+                                leave_notes = f"Full Day Leave - {leave_request.leave_type}"
+
+                            leave_type_desc = 'comp-off' if comp_off_request else leave_request.leave_type
+                            print(f"[DEBUG] ✓ {emp.first_name} is on approved {leave_type_desc} on {current_date}, creating {leave_status} schedule", flush=True)
                             leave_schedule = Schedule(
                                 department_id=department_id,
                                 employee_id=emp.id,
                                 role_id=shift.role_id,
                                 shift_id=shift.id,
                                 date=current_date,
-                                start_time=None,
-                                end_time=None,
-                                status="leave"  # Mark as leave, not shift
+                                start_time=start_time,
+                                end_time=end_time,
+                                status=leave_status,
+                                notes=leave_notes
                             )
                             db.add(leave_schedule)
                             schedules_created += 1
                         else:
                             print(f"[DEBUG] ✗ {emp.first_name} already has a schedule entry on {current_date}, skipping leave creation", flush=True)
-                        continue  # Don't assign shift for leave day
+                        continue  # Don't assign shift for leave/comp-off day
                     
                     # CRITICAL: Check if employee already has a shift on this day (NO DOUBLE SHIFTS)
                     existing_today = await db.execute(
@@ -3395,13 +4841,15 @@ async def generate_schedules(
                         .filter(
                             Schedule.employee_id == emp.id,
                             Schedule.date >= week_start,
-                            Schedule.date <= week_end
+                            Schedule.date <= week_end,
+                            Schedule.status.in_(['scheduled', 'completed', 'comp_off_earned'])  # Exclude 'leave', 'comp_off_taken' status
                         )
                         .order_by(Schedule.date)
                     )
                     week_schedules = consecutive_check.scalars().all()
                     
                     # Check consecutive shifts INCLUDING the new one
+                    # NOTE: Leave days are not counted as "shifts" for the consecutive limit
                     week_dates = [s.date for s in week_schedules]
                     if current_date not in week_dates:
                         week_dates.append(current_date)
@@ -3422,18 +4870,34 @@ async def generate_schedules(
                         continue  # Skip if would exceed 5 consecutive shifts
 
                     # Fetch existing schedules for the week (with eager loading of role)
+                    # IMPORTANT: Only count actual work shifts, not leave days, for hour calculations
                     existing_schedules_result = await db.execute(
                         select(Schedule)
                         .filter(
                             Schedule.employee_id == emp.id,
                             Schedule.date >= week_start,
-                            Schedule.date <= week_end
+                            Schedule.date <= week_end,
+                            Schedule.status.in_(['scheduled', 'completed', 'comp_off_earned'])  # Exclude 'leave', 'comp_off_taken' status
                         )
                         .options(selectinload(Schedule.role))
                     )
                     existing_schedules = existing_schedules_result.scalars().all()
 
+                    # Also count leave days for scheduling fairness, but not for hours calculation
+                    leave_schedules_result = await db.execute(
+                        select(Schedule)
+                        .filter(
+                            Schedule.employee_id == emp.id,
+                            Schedule.date >= week_start,
+                            Schedule.date <= week_end,
+                            Schedule.status.in_(['leave', 'leave_half_morning', 'leave_half_afternoon', 'comp_off_taken'])
+                        )
+                    )
+                    leave_schedules = leave_schedules_result.scalars().all()
+                    leave_days_count = len(leave_schedules)
+
                     # Calculate existing hours in Python, subtracting break time
+                    # NOTE: Leave days don't add to hour count, but they fulfill part of weekly requirement
                     existing_hours = 0
                     existing_hours_today = 0
                     for sched in existing_schedules:

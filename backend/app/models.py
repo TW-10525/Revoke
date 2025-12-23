@@ -115,6 +115,8 @@ class Employee(Base):
     overtime_tracking = relationship("OvertimeTracking", back_populates="employee", cascade="all, delete-orphan")
     overtime_requests = relationship("OvertimeRequest", back_populates="employee", cascade="all, delete-orphan")
     overtime_worked = relationship("OvertimeWorked", back_populates="employee", cascade="all, delete-orphan")
+    comp_off_requests = relationship("CompOffRequest", back_populates="employee", cascade="all, delete-orphan")
+    comp_off_tracking = relationship("CompOffTracking", back_populates="employee", cascade="all, delete-orphan")
 
 
 class Role(Base):
@@ -179,6 +181,7 @@ class LeaveRequest(Base):
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
     leave_type = Column(String(20), nullable=False)
+    duration_type = Column(String(20), default='full_day')  # full_day, half_day_morning, half_day_afternoon
     reason = Column(Text)
     status = Column(SQLEnum(LeaveStatus), default=LeaveStatus.PENDING)
     manager_id = Column(Integer, ForeignKey('managers.id', name='fk_leave_manager'))
@@ -374,3 +377,62 @@ class OvertimeWorked(Base):
 
     # Relationships
     employee = relationship("Employee", back_populates="overtime_worked")
+
+
+class CompOffRequest(Base):
+    """Comp-off (Compensatory Off) leave requests"""
+    __tablename__ = "comp_off_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey('employees.id', name='fk_compoff_employee'), nullable=False)
+    comp_off_date = Column(Date, nullable=False)  # The date for which comp-off is being requested
+    reason = Column(Text)  # Reason for taking comp-off
+    status = Column(SQLEnum(LeaveStatus), default=LeaveStatus.PENDING)  # pending, approved, rejected
+    manager_id = Column(Integer, ForeignKey('managers.id', name='fk_compoff_manager'), nullable=True)
+    reviewed_at = Column(DateTime)
+    review_notes = Column(Text)
+    schedule_id = Column(Integer, ForeignKey('schedules.id', name='fk_compoff_schedule'), nullable=True)  # Schedule created after approval
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    employee = relationship("Employee", back_populates="comp_off_requests")
+    manager = relationship("Manager")
+    schedule = relationship("Schedule")
+
+
+class CompOffTracking(Base):
+    """Track comp-off balance per employee (earned and used) with monthly expiry"""
+    __tablename__ = "comp_off_tracking"
+
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey('employees.id', name='fk_compoff_tracking_employee'), nullable=False, unique=True)
+    earned_days = Column(Integer, default=0)  # Days earned by working on non-shift days
+    used_days = Column(Integer, default=0)  # Days already used
+    available_days = Column(Integer, default=0)  # Available for use (earned - used)
+    earned_date = Column(DateTime, nullable=True)  # When comp-off was earned
+    expired_days = Column(Integer, default=0)  # Days expired (not used within month)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    employee = relationship("Employee", back_populates="comp_off_tracking")
+    comp_off_details = relationship("CompOffDetail", back_populates="tracking", cascade="all, delete-orphan")
+
+
+class CompOffDetail(Base):
+    """Detailed tracking of each comp-off earned and used"""
+    __tablename__ = "comp_off_details"
+
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey('employees.id', name='fk_compoff_detail_employee'), nullable=False)
+    tracking_id = Column(Integer, ForeignKey('comp_off_tracking.id', name='fk_compoff_detail_tracking'), nullable=False)
+    type = Column(String(50), default='earned')  # 'earned', 'used', 'expired'
+    date = Column(DateTime, default=datetime.utcnow)  # Date earned/used/expired
+    earned_month = Column(String(7), default=None)  # Format: "2025-12" for tracking monthly expiry
+    expired_at = Column(DateTime, nullable=True)  # When it expired
+    notes = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    tracking = relationship("CompOffTracking", back_populates="comp_off_details")
