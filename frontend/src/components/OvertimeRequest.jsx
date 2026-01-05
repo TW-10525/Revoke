@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, CheckCircle, XCircle, Send } from 'lucide-react';
 import api from '../services/api';
+import { useLanguage } from '../context/LanguageContext';
+import Header from './layout/Header';
 
 const OvertimeRequest = () => {
+  const { t } = useLanguage();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -29,7 +32,7 @@ const OvertimeRequest = () => {
       console.error('Error loading overtime requests:', error);
       setMessage({
         type: 'error',
-        text: 'Failed to load overtime requests'
+        text: t('failedToLoadOvertimeRequests')
       });
     } finally {
       setLoading(false);
@@ -58,7 +61,7 @@ const OvertimeRequest = () => {
       if (requestHours <= 0) {
         setMessage({
           type: 'error',
-          text: 'End time must be after start time'
+          text: t('endTimeMustBeAfterStartTime')
         });
         setSubmitting(false);
         return;
@@ -73,7 +76,7 @@ const OvertimeRequest = () => {
       });
       setMessage({
         type: 'success',
-        text: 'Overtime request submitted successfully'
+        text: t('overtimeRequestSubmittedSuccessfully')
       });
       setFormData({ 
         request_date: new Date().toISOString().split('T')[0],
@@ -133,30 +136,33 @@ const OvertimeRequest = () => {
     const s = (status || '').toLowerCase();
     switch (s) {
       case 'approved':
-        return 'Approved';
+        return t('approved');
       case 'rejected':
-        return 'Rejected';
+        return t('rejected');
       case 'pending':
-        return 'Pending';
+        return t('pending');
       default:
-        return 'Unknown';
+        return t('unknown');
     }
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-900">Overtime Requests</h1>
-        <button
-          onClick={() => setShowForm(!showForm)}
+    <>
+      <Header title={t('overtimeRequests')} subtitle={t('submitOvertimeRequest')} />
+      <div className="p-6">
+        <div className="space-y-6">
+          {/* Header */}
+          <div className="flex justify-between items-center">
+            <h1 className="text-3xl font-bold text-gray-900">{t('overtimeRequests')}</h1>
+            <button
+              onClick={() => setShowForm(!showForm)}
           className={`px-4 py-2 rounded-lg font-medium transition-colors ${
             showForm
               ? 'bg-gray-300 text-gray-700 hover:bg-gray-400'
               : 'bg-blue-600 text-white hover:bg-blue-700'
           }`}
         >
-          {showForm ? t('cancel') : '+ New Request'}
+          {showForm ? t('cancel') : `+ ${t('newRequest')}`}
         </button>
       </div>
 
@@ -179,7 +185,7 @@ const OvertimeRequest = () => {
             onClick={() => setMessage(null)}
             className="ml-auto text-sm font-medium hover:opacity-75"
           >
-            Dismiss
+            {t('dismiss')}
           </button>
         </div>
       )}
@@ -187,11 +193,11 @@ const OvertimeRequest = () => {
       {/* Form */}
       {showForm && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Submit Overtime Request</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">{t('submitOvertimeRequest')}</h2>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Request Date *
+                {t('requestDate')} *
               </label>
               <input
                 type="date"
@@ -201,13 +207,13 @@ const OvertimeRequest = () => {
                 required
               />
               <p className="text-xs text-gray-500 mt-1">
-                Date for which you need overtime
+                {t('dateForWhichYouNeedOvertime')}
               </p>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                From Time *
+                {t('fromTime')} *
               </label>
               <input
                 type="time"
@@ -217,13 +223,13 @@ const OvertimeRequest = () => {
                 required
               />
               <p className="text-xs text-gray-500 mt-1">
-                Overtime start time
+                {t('overtimeStartTime')}
               </p>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                To Time *
+                {t('toTime')} *
               </label>
               <input
                 type="time"
@@ -233,13 +239,13 @@ const OvertimeRequest = () => {
                 required
               />
               <p className="text-xs text-gray-500 mt-1">
-                Overtime end time
+                {t('overtimeEndTime')}
               </p>
             </div>
 
             <div className="bg-blue-50 border border-blue-200 rounded p-3">
               <p className="text-sm text-blue-800">
-                <strong>Duration:</strong> {(() => {
+                <strong>{t('duration')}:</strong> {(() => {
                   const [fromHour, fromMin] = formData.from_time.split(':').map(Number);
                   const [toHour, toMin] = formData.to_time.split(':').map(Number);
                   const fromMins = fromHour * 60 + fromMin;
@@ -255,12 +261,12 @@ const OvertimeRequest = () => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Reason *
+                {t('reason')} *
               </label>
               <textarea
                 value={formData.reason}
                 onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
-                placeholder="Explain why you need overtime..."
+                placeholder={t('explainWhyYouNeedOvertime')}
                 rows="3"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
@@ -274,14 +280,14 @@ const OvertimeRequest = () => {
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 <Send className="w-4 h-4" />
-                {submitting ? 'Submitting...' : 'Submit Request'}
+                {submitting ? t('submitting') : t('submitRequest')}
               </button>
               <button
                 type="button"
                 onClick={() => setShowForm(false)}
                 className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50"
               >
-                Cancel
+                {t('cancel')}
               </button>
             </div>
           </form>
@@ -290,7 +296,7 @@ const OvertimeRequest = () => {
 
       {/* Requests List */}
       <div className="space-y-3">
-        <h2 className="text-lg font-semibold text-gray-900">Your Requests</h2>
+        <h2 className="text-lg font-semibold text-gray-900">{t('yourRequests')}</h2>
         {loading ? (
           <div className="flex justify-center py-8">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -298,9 +304,9 @@ const OvertimeRequest = () => {
         ) : requests.length === 0 ? (
           <div className="bg-gray-50 rounded-lg border border-gray-200 p-8 text-center">
             <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-            <p className="text-gray-600">No overtime requests yet</p>
+            <p className="text-gray-600">{t('noOvertimeRequestsYet')}</p>
             <p className="text-sm text-gray-500 mt-1">
-              Submit your first overtime request using the button above
+              {t('submitFirstOvertimeRequest')}
             </p>
           </div>
         ) : (
@@ -317,7 +323,7 @@ const OvertimeRequest = () => {
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-gray-900">
-                        {request.request_hours.toFixed(1)} hours
+                        {request.request_hours.toFixed(1)} {t('hours')}
                       </span>
                       <span
                         className={`text-xs px-2 py-1 rounded-full font-medium ${
@@ -333,11 +339,11 @@ const OvertimeRequest = () => {
                     </div>
                     <p className="text-sm text-gray-700 mt-1">{request.reason}</p>
                     <p className="text-xs text-gray-500 mt-2">
-                      Requested: {new Date(request.request_date).toLocaleDateString()}
+                      {t('requested')}: {new Date(request.request_date).toLocaleDateString()}
                     </p>
                     {request.manager_notes && (
                       <div className="mt-2 p-2 bg-white/50 rounded text-sm text-gray-700">
-                        <p className="font-medium text-gray-800">Manager Notes:</p>
+                        <p className="font-medium text-gray-800">{t('managerNotes')}:</p>
                         <p>{request.manager_notes}</p>
                       </div>
                     )}
@@ -347,8 +353,10 @@ const OvertimeRequest = () => {
             ))}
           </div>
         )}
+        </div>
+        </div>
       </div>
-    </div>
+    </>
   );
 };
 

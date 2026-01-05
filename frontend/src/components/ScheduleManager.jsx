@@ -5,9 +5,12 @@ import Card from './common/Card';
 import Button from './common/Button';
 import Modal from './common/Modal';
 import { getSchedules, createSchedule, updateSchedule, deleteSchedule, generateSchedule, getHolidays } from '../services/api';
+import { useLanguage } from '../context/LanguageContext';
 import api from '../services/api';
 
 const ScheduleManager = ({ departmentId, employees = [], roles = [] }) => {
+  const { t } = useLanguage();
+  
   // View/Edit Mode
   const [viewMode, setViewMode] = useState('view');
   const [schedules, setSchedules] = useState([]);
@@ -367,7 +370,7 @@ const ScheduleManager = ({ departmentId, employees = [], roles = [] }) => {
   const weekDates = getWeekDates(currentWeekStart);
   const displaySchedules = viewMode === 'edit' ? editedSchedules : schedules;
 
-  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const dayNames = [t('mon'), t('tue'), t('wed'), t('thu'), t('fri'), t('sat'), t('sun')];
 
   const handlePreviousWeek = () => {
     setCurrentWeekStart(getMonday(new Date(currentWeekStart).getTime() - 7 * 24 * 60 * 60 * 1000));
@@ -393,8 +396,8 @@ const ScheduleManager = ({ departmentId, employees = [], roles = [] }) => {
       )}
 
       <Card
-        title="Schedule Management"
-        subtitle={`Week of ${weekDates[0]} to ${weekDates[6]}`}
+        title={t('scheduleManagementTitle')}
+        subtitle={`${t('weekOf')} ${weekDates[0]} to ${weekDates[6]}`}
         headerAction={
           viewMode === 'view' ? (
             <div className="flex gap-2 items-center">
@@ -408,11 +411,11 @@ const ScheduleManager = ({ departmentId, employees = [], roles = [] }) => {
               <div className="border-l pl-2 ml-2 flex gap-2">
                 <Button onClick={() => setShowWeekPicker(true)} variant="primary">
                   <Calendar className="w-4 h-4 mr-2 inline" />
-                  Generate
+                  {t('generateSchedule')}
                 </Button>
                 <Button onClick={() => setViewMode('edit')} variant="secondary">
                   <Edit2 className="w-4 h-4 mr-2 inline" />
-                  Edit
+                  {t('editSchedule')}
                 </Button>
               </div>
             </div>
@@ -420,11 +423,11 @@ const ScheduleManager = ({ departmentId, employees = [], roles = [] }) => {
             <div className="flex gap-2">
               <Button onClick={handleAddSchedule} variant="secondary">
                 <Plus className="w-4 h-4 mr-2 inline" />
-                Add Shift
+                {t('addShift')}
               </Button>
               <Button onClick={handleConfirmChanges} variant="primary">
                 <Check className="w-4 h-4 mr-2 inline" />
-                Confirm & Save
+                {t('confirmAndSave')}
               </Button>
               <Button
                 onClick={() => {
@@ -441,13 +444,13 @@ const ScheduleManager = ({ departmentId, employees = [], roles = [] }) => {
         }
       >
         {loading ? (
-          <div className="p-12 text-center text-gray-500">Loading schedules...</div>
+          <div className="p-12 text-center text-gray-500">{t('loadingSchedules')}</div>
         ) : (
           <div className="overflow-x-auto">
             <div className="min-w-max">
               {/* Header with days */}
               <div className="grid gap-0 border border-gray-300 rounded-lg overflow-hidden" style={{ gridTemplateColumns: '250px repeat(7, 1fr)' }}>
-                <div className="bg-gray-900 text-white p-4 font-bold">Employee / Role</div>
+                <div className="bg-gray-900 text-white p-4 font-bold">{t('employeeRole')}</div>
                 {weekDates.map((date, idx) => {
                   const d = new Date(date);
                   const dayNum = d.getDate();
@@ -464,7 +467,7 @@ const ScheduleManager = ({ departmentId, employees = [], roles = [] }) => {
                           ? 'bg-gray-300 text-gray-700'
                           : 'bg-gray-100 text-gray-600'
                       }`}
-                      title={holidayName || (isWeekend ? 'Weekend' : '')}
+                      title={holidayName || (isWeekend ? t('weekend') : '')}
                     >
                       <div className="text-gray-700">{dayNames[idx]}</div>
                       <div className="text-lg font-bold">{dayNum}</div>
@@ -642,15 +645,15 @@ const ScheduleManager = ({ departmentId, employees = [], roles = [] }) => {
       <div className="mt-6 flex flex-wrap gap-4 text-sm text-gray-600">
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 bg-blue-100 border-l-4 border-blue-600 rounded"></div>
-          <span>Scheduled Shift</span>
+          <span>{t('scheduledShift')}</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 bg-red-50 border border-gray-300 rounded"></div>
-          <span>Leave (Paid/Unpaid)</span>
+          <span>{t('leavePaidUnpaid')}</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 bg-purple-50 border border-gray-300 rounded"></div>
-          <span>Comp-Off Usage</span>
+          <span>{t('compOffUsage')}</span>
         </div>
       </div>
 

@@ -94,7 +94,7 @@ const ManagerDashboardHome = ({ user }) => {
 
   return (
     <div>
-      <Header title={t('dashboard')} subtitle={`Welcome back, ${user.full_name}`} />
+      <Header title={t('dashboard')} subtitle={`${t('welcome')}, ${user.full_name}`} />
       <div className="p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
           {statCards.map((stat, index) => (
@@ -419,12 +419,12 @@ const ManagerEmployees = ({ user }) => {
               </label>
               <Button onClick={() => { setEditingEmployee(null); setShowModal(true); }}>
                 <Plus className="w-4 h-4 mr-2 inline" />
-                Add Employee
+                {t('addEmployee')}
               </Button>
             </div>
           }
         >
-          <Table columns={columns} data={employees.filter(emp => employmentTypeFilter === 'all' || emp.employment_type === employmentTypeFilter)} />
+          <Table columns={columns} data={employees.filter(emp => employmentTypeFilter === 'all' || emp.employment_type === employmentTypeFilter)} emptyMessage={t('noDataAvailable')} />
         </Card>
         <Modal
           isOpen={showModal}
@@ -936,17 +936,17 @@ const ManagerRoles = ({ user }) => {
         {/* Roles Section */}
         <Card
           title={t('jobRoles')}
-          subtitle={`${roles.length} roles configured`}
+          subtitle={`${roles.length} ${t('rolesConfigured')}`}
           headerAction={
             <Button onClick={() => { setSelectedRole(null); setShowRoleModal(true); }}>
               <Plus className="w-4 h-4 mr-2 inline" />
-              Add Role
+              {t('addRole')}
             </Button>
           }
         >
           <div className="space-y-3">
             {roles.length === 0 ? (
-              <p className="text-center text-gray-500 py-4">No roles created yet. Create one to get started!</p>
+              <p className="text-center text-gray-500 py-4">{t('noRolesCreated')}</p>
             ) : (
               roles.map((role) => (
                 <div
@@ -1520,7 +1520,7 @@ const ManagerSchedules = ({ user }) => {
 
   return (
     <div>
-      <Header title={t('scheduleManagement')} subtitle="View, create, and manage employee schedules" />
+      <Header title={t('scheduleManagement')} subtitle={t('scheduleSubtitle')} />
       <div className="p-6">
         <ScheduleManager
           employees={employees}
@@ -1911,7 +1911,7 @@ const ManagerLeaves = () => {
 
   const columns = [
     {
-      header: 'Employee',
+      header: t('employee') || 'Employee',
       render: (row) => {
         if (row.employee) {
           return `${row.employee.first_name} ${row.employee.last_name} (${row.employee.employee_id})`;
@@ -1920,17 +1920,17 @@ const ManagerLeaves = () => {
       }
     },
     {
-      header: 'Leave Type',
+      header: t('leaveType'),
       render: (row) => {
-        let durationLabel = 'Full Day';
+        let durationLabel = t('fullDay');
         if (row.duration_type === 'half_day_morning') {
-          durationLabel = 'Half Day (AM)';
+          durationLabel = t('halfDayMorning');
         } else if (row.duration_type === 'half_day_afternoon') {
-          durationLabel = 'Half Day (PM)';
+          durationLabel = t('halfDayAfternoon');
         }
 
         const isCompOffUsage = row.leave_type === 'comp_off';
-        const typeLabel = row.leave_type === 'comp_off' ? 'Comp-Off Usage' :
+        const typeLabel = row.leave_type === 'comp_off' ? t('compOffUsage') :
                          (row.leave_type.charAt(0).toUpperCase() + row.leave_type.slice(1));
 
         return (
@@ -1945,32 +1945,32 @@ const ManagerLeaves = () => {
         );
       }
     },
-    { header: 'Start Date', render: (row) => format(new Date(row.start_date), 'MMM dd, yyyy') },
-    { header: 'End Date', render: (row) => format(new Date(row.end_date), 'MMM dd, yyyy') },
-    { header: 'Reason', accessor: 'reason' },
-    { header: 'Status', render: (row) => getStatusBadge(row.status) },
+    { header: t('startDate') || 'Start Date', render: (row) => format(new Date(row.start_date), 'MMM dd, yyyy') },
+    { header: t('endDate') || 'End Date', render: (row) => format(new Date(row.end_date), 'MMM dd, yyyy') },
+    { header: t('reason') || 'Reason', accessor: 'reason' },
+    { header: t('status') || 'Status', render: (row) => getStatusBadge(row.status) },
     {
-      header: 'Actions',
+      header: t('actions'),
       render: (row) => (
         row.status === 'pending' ? (
           <div className="flex space-x-2">
             <button
               onClick={() => handleReview(row, 'approve')}
               className="text-green-600 hover:text-green-800"
-              title="Approve"
+              title={t('approve')}
             >
               <CheckCircle className="w-5 h-5" />
             </button>
             <button
               onClick={() => handleReview(row, 'reject')}
               className="text-red-600 hover:text-red-800"
-              title="Reject"
+              title={t('reject')}
             >
               <XCircle className="w-5 h-5" />
             </button>
           </div>
         ) : (
-          <span className="text-gray-400 text-sm">Reviewed</span>
+          <span className="text-gray-400 text-sm">{t('reviewed')}</span>
         )
       )
     }
@@ -1993,17 +1993,17 @@ const ManagerLeaves = () => {
       <Header title={t('leaveManagement')} subtitle={t('reviewAndManageLeaveRequests')} />
       <div className="p-6">
         {/* Employee Search Section */}
-        <Card title="Search Employee Leave Details" className="mb-6">
+        <Card title={t('searchEmployeeLeaveDetails')} className="mb-6">
           <div className="flex gap-3">
             <input
               type="text"
-              placeholder="Enter Employee ID"
+              placeholder={t('enterEmployeeId')}
               value={searchEmpId}
               onChange={(e) => setSearchEmpId(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleSearchEmployee()}
               className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
             />
-            <Button onClick={handleSearchEmployee}>Search</Button>
+            <Button onClick={handleSearchEmployee}>{t('search')}</Button>
           </div>
         </Card>
 
@@ -2454,7 +2454,7 @@ const ManagerLeaves = () => {
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            All Requests ({leaves.length})
+            {t('allRequests')} ({leaves.length})
           </button>
           <button
             onClick={() => setLeaveFilter('paid')}
@@ -2464,7 +2464,7 @@ const ManagerLeaves = () => {
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            Paid Leave ({paidCount})
+            {t('paidLeave')} ({paidCount})
           </button>
           <button
             onClick={() => setLeaveFilter('unpaid')}
@@ -2474,7 +2474,7 @@ const ManagerLeaves = () => {
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            Unpaid Leave ({unpaidCount})
+            {t('unpaidLeave')} ({unpaidCount})
           </button>
           <button
             onClick={() => setLeaveFilter('comp_off')}
@@ -2484,35 +2484,35 @@ const ManagerLeaves = () => {
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            Comp-Off Usage ({compOffCount})
+            {t('compOffUsage')} ({compOffCount})
           </button>
         </div>
 
         <Card
           title={
-            leaveFilter === 'all' ? 'All Leave Requests' :
-            leaveFilter === 'paid' ? 'Paid Leave Requests' :
-            leaveFilter === 'unpaid' ? 'Unpaid Leave Requests' :
-            'Comp-Off Usage Requests'
+            leaveFilter === 'all' ? t('allRequests') :
+            leaveFilter === 'paid' ? t('paidLeave') :
+            leaveFilter === 'unpaid' ? t('unpaidLeave') :
+            t('compOffUsage')
           }
-          subtitle={`${filteredLeaves.length} ${leaveFilter === 'all' ? 'total' : leaveFilter === 'comp_off' ? 'comp-off usage' : leaveFilter} requests`}
+          subtitle={`${filteredLeaves.length} ${leaveFilter === 'all' ? t('total') : leaveFilter === 'comp_off' ? t('compOffUsage').toLowerCase() : t(leaveFilter)} ${t('total').toLowerCase()}`}
         >
-          <Table columns={columns} data={filteredLeaves} />
+          <Table columns={columns} data={filteredLeaves} emptyMessage={t('noDataAvailable')} />
         </Card>
         <Modal
           isOpen={showModal}
           onClose={() => setShowModal(false)}
-          title={`${action === 'approve' ? 'Approve' : 'Reject'} ${selectedLeave?.leave_type === 'comp_off' ? 'Comp-Off Usage' : 'Leave'} Request`}
+          title={`${action === 'approve' ? t('approveLeavRequest') : t('rejectLeavRequest')} ${selectedLeave?.leave_type === 'comp_off' ? t('compOffUsage') : t('leaveType')} ${t('total')}`}
           footer={
             <div className="flex justify-end space-x-3">
               <Button variant="outline" onClick={() => setShowModal(false)}>
-                Cancel
+                {t('cancel')}
               </Button>
               <Button
                 variant={action === 'approve' ? 'success' : 'danger'}
                 onClick={handleSubmitReview}
               >
-                {action === 'approve' ? 'Approve' : 'Reject'}
+                {action === 'approve' ? t('approveLeavRequest') : t('rejectLeavRequest')}
               </Button>
             </div>
           }
@@ -2520,7 +2520,7 @@ const ManagerLeaves = () => {
           {selectedLeave && (
             <div className="space-y-4">
               <div>
-                <p className="text-sm text-gray-500">Employee</p>
+                <p className="text-sm text-gray-500">{t('employee')}</p>
                 <p className="font-medium">
                   {selectedLeave.employee
                     ? `${selectedLeave.employee.first_name} ${selectedLeave.employee.last_name} (${selectedLeave.employee.employee_id})`
@@ -2528,23 +2528,23 @@ const ManagerLeaves = () => {
                 </p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Leave Type</p>
+                <p className="text-sm text-gray-500">{t('leaveType')}</p>
                 <p className="font-medium">
-                  {selectedLeave.leave_type === 'comp_off' ? 'Comp-Off Usage' :
+                  {selectedLeave.leave_type === 'comp_off' ? t('compOffUsage') :
                    (selectedLeave.leave_type.charAt(0).toUpperCase() + selectedLeave.leave_type.slice(1))}
                   {selectedLeave.duration_type && (
                     <span className="ml-2">
                       ({selectedLeave.duration_type === 'half_day_morning'
-                        ? 'Half Day - Morning'
+                        ? t('halfDayMorning')
                         : selectedLeave.duration_type === 'half_day_afternoon'
-                        ? 'Half Day - Afternoon'
-                        : 'Full Day'})
+                        ? t('halfDayAfternoon')
+                        : t('fullDay')})
                     </span>
                   )}
                 </p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Leave Period</p>
+                <p className="text-sm text-gray-500">{t('leavePeriod')}</p>
                 <p className="font-medium">
                   {format(new Date(selectedLeave.start_date), 'MMM dd, yyyy')} -{' '}
                   {format(new Date(selectedLeave.end_date), 'MMM dd, yyyy')}
@@ -2575,8 +2575,11 @@ const ManagerLeaves = () => {
 };
 
 const ManagerAttendance = ({ user }) => {
+  const { t } = useLanguage();
   const [attendance, setAttendance] = useState([]);
   const [loading, setLoading] = useState(true);
+  const monthKeys = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+  const dayKeys = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   const [stats, setStats] = useState({ present: 0, late: 0, absent: 0 });
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -2729,7 +2732,7 @@ const ManagerAttendance = ({ user }) => {
             <div className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500 mb-1">Present</p>
+                  <p className="text-sm text-gray-500 mb-1">{t('present')}</p>
                   <p className="text-3xl font-bold text-green-600">{stats.present}</p>
                 </div>
                 <CheckCircle className="w-8 h-8 text-green-600" />
@@ -2740,7 +2743,7 @@ const ManagerAttendance = ({ user }) => {
             <div className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500 mb-1">Late</p>
+                  <p className="text-sm text-gray-500 mb-1">{t('late')}</p>
                   <p className="text-3xl font-bold text-yellow-600">{stats.late}</p>
                 </div>
                 <AlertCircle className="w-8 h-8 text-yellow-600" />
@@ -2751,7 +2754,7 @@ const ManagerAttendance = ({ user }) => {
             <div className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500 mb-1">Absent</p>
+                  <p className="text-sm text-gray-500 mb-1">{t('absent')}</p>
                   <p className="text-3xl font-bold text-red-600">{stats.absent}</p>
                 </div>
                 <XCircle className="w-8 h-8 text-red-600" />
@@ -2759,27 +2762,30 @@ const ManagerAttendance = ({ user }) => {
             </div>
           </Card>
         </div>
-        <Card title={`Today's Attendance - ${format(new Date(), 'MMMM dd, yyyy')}`}>
+        <Card title={`${t('todaysAttendance')} - ${t(dayKeys[new Date().getDay()])}, ${t(monthKeys[new Date().getMonth()])} ${new Date().getDate()}, ${new Date().getFullYear()}`}>
           {/* Month Selector and Download Buttons */}
           <div className="bg-gray-50 p-4 rounded-lg mb-4 border border-gray-200">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Select Month & Year</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('selectMonthYear')}</label>
                 <select
                   value={selectedMonth}
                   onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                    <option key={m} value={m}>
-                      {new Date(2024, m - 1).toLocaleString('default', { month: 'long' })}
-                    </option>
-                  ))}
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => {
+                    const monthKeys = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+                    return (
+                      <option key={m} value={m}>
+                        {t(monthKeys[m - 1])}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Year</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('year')}</label>
                 <select
                   value={selectedYear}
                   onChange={(e) => setSelectedYear(parseInt(e.target.value))}
@@ -2799,7 +2805,7 @@ const ManagerAttendance = ({ user }) => {
                   }}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium text-sm"
                 >
-                  Download Monthly
+                  {t('downloadMonthly')}
                 </button>
               </div>
 
@@ -2811,7 +2817,7 @@ const ManagerAttendance = ({ user }) => {
                   }}
                   className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium text-sm"
                 >
-                  Download Weekly
+                  {t('downloadWeekly')}
                 </button>
               </div>
             </div>
@@ -2819,14 +2825,14 @@ const ManagerAttendance = ({ user }) => {
 
           {/* Employee Monthly Report Download Section */}
           <div className="bg-blue-50 p-4 rounded-lg mb-6 border border-blue-200">
-            <h3 className="text-sm font-semibold text-gray-800 mb-2">📄 Download Individual Employee Monthly Report</h3>
-            <p className="text-xs text-gray-600 mb-3">Includes: Daily attendance details with night hours (after 22:00), overtime, leave info, and summary statistics</p>
+            <h3 className="text-sm font-semibold text-gray-800 mb-2">📄 {t('downloadIndividualReport')}</h3>
+            <p className="text-xs text-gray-600 mb-3">{t('attendanceReportIncludes')}</p>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Employee ID</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('employeeId')}</label>
                 <input
                   type="text"
-                  placeholder="e.g., EMP001"
+                  placeholder={t('exampleEmployeeId')}
                   value={employeeIdInput}
                   onChange={(e) => setEmployeeIdInput(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -2834,22 +2840,25 @@ const ManagerAttendance = ({ user }) => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Month</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('month')}</label>
                 <select
                   value={empDownloadMonth}
                   onChange={(e) => setEmpDownloadMonth(parseInt(e.target.value))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                    <option key={m} value={m}>
-                      {new Date(2024, m - 1).toLocaleString('default', { month: 'long' })}
-                    </option>
-                  ))}
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => {
+                    const monthKeys = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+                    return (
+                      <option key={m} value={m}>
+                        {t(monthKeys[m - 1])}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Year</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('year')}</label>
                 <select
                   value={empDownloadYear}
                   onChange={(e) => setEmpDownloadYear(parseInt(e.target.value))}
@@ -2867,7 +2876,7 @@ const ManagerAttendance = ({ user }) => {
                   disabled={empDownloading}
                   className="w-full px-4 py-2 bg-purple-500 hover:bg-purple-600 disabled:bg-gray-400 text-white rounded-lg font-medium transition"
                 >
-                  {empDownloading ? '⏳ Downloading...' : '📥 Download'}
+                  {empDownloading ? `⏳ ${t('downloading')}` : `📥 ${t('downloadButton')}`}
                 </button>
               </div>
             </div>
@@ -2876,7 +2885,7 @@ const ManagerAttendance = ({ user }) => {
           {attendance.length === 0 ? (
             <div className="text-center py-12">
               <Clock className="w-16 h-16 mx-auto text-gray-400 mb-4" />
-              <p className="text-gray-500">No scheduled shifts for today</p>
+              <p className="text-gray-500">{t('noScheduledShifts')}</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -3039,6 +3048,7 @@ const ManagerAttendance = ({ user }) => {
 };
 
 const ManagerMessages = ({ user }) => {
+  const { t } = useLanguage();
   const [messages, setMessages] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [showModal, setShowModal] = useState(false);
@@ -3133,8 +3143,8 @@ const ManagerMessages = ({ user }) => {
       <Header title={t('messages')} subtitle={t('communicateWithYourTeam')} />
       <div className="p-6">
         <Card
-          title="Messages"
-          subtitle={`${filteredMessages.length} of ${messages.length} messages`}
+          title={t('messages')}
+          subtitle={`${filteredMessages.length} ${t('of')} ${messages.length} ${t('messages')}`}
           headerAction={
             <Button onClick={() => setShowModal(true)}>
               <Plus className="w-4 h-4 mr-2 inline" />

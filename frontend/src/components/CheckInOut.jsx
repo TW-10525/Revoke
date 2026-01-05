@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { checkIn, checkOut, getAttendance } from '../services/api';
 import { Clock, LogIn, LogOut, AlertCircle, CheckCircle } from 'lucide-react';
+import { useLanguage } from '../context/LanguageContext';
 import Card from './common/Card';
 import Button from './common/Button';
 
 export default function CheckInOut() {
+  const { t } = useLanguage();
   const [todayStatus, setTodayStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -13,6 +15,8 @@ export default function CheckInOut() {
   const [notes, setNotes] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const monthKeys = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+  const dayKeys = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
   useEffect(() => {
     loadTodayStatus();
@@ -121,7 +125,7 @@ export default function CheckInOut() {
         
         console.log('Check-in successful, setting status:', newStatus);
         setTodayStatus(newStatus);
-        setSuccess('✅ Checked in successfully!');
+        setSuccess(`✅ ${t('successfullyCheckedIn')}`);
       }
       
       // Reload after a moment to ensure database is synced
@@ -169,7 +173,7 @@ export default function CheckInOut() {
         
         console.log('Check-out successful, setting status:', updatedStatus);
         setTodayStatus(updatedStatus);
-        setSuccess('✅ Checked out successfully!');
+        setSuccess(`✅ ${t('successfullyCheckedOut')}`);
       }
       
       setNotes('');
@@ -198,17 +202,17 @@ export default function CheckInOut() {
   };
 
   return (
-    <Card title="Check In / Out" subtitle="Track your work hours">
+    <Card title={t('checkInOut')} subtitle={t('trackYourWorkHours')}>
       {/* Running Time Display */}
       <div className="mb-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm text-gray-600 mb-1">Current Time</p>
+            <p className="text-sm text-gray-600 mb-1">{t('currentTime')}</p>
             <p className="text-4xl font-bold text-blue-900 font-mono">
               {format(currentTime, 'HH:mm:ss')}
             </p>
             <p className="text-sm text-blue-600 mt-1">
-              {format(currentTime, 'EEEE, MMMM dd, yyyy')}
+              {t(dayKeys[currentTime.getDay()])}, {t(monthKeys[currentTime.getMonth()])} {currentTime.getDate()}, {currentTime.getFullYear()}
             </p>
           </div>
           <Clock className="w-12 h-12 text-blue-600" />
@@ -218,7 +222,7 @@ export default function CheckInOut() {
       {loading && (
         <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start">
           <div className="w-4 h-4 bg-blue-500 rounded-full animate-pulse mr-2 flex-shrink-0 mt-0.5" />
-          <span className="text-sm text-blue-700">Loading check-in status...</span>
+          <span className="text-sm text-blue-700">{t('loadingCheckInStatus')}</span>
         </div>
       )}
 
@@ -239,7 +243,7 @@ export default function CheckInOut() {
       {/* DEBUG INFO - Remove in production */}
       <div className="mb-4 p-2 bg-gray-100 rounded text-xs font-mono overflow-auto max-h-32">
         <details>
-          <summary className="cursor-pointer font-bold">Debug Info</summary>
+          <summary className="cursor-pointer font-bold">{t('debugInfo')}</summary>
           <div className="mt-2">
             <p>todayStatus: {todayStatus ? 'EXISTS' : 'NULL'}</p>
             {todayStatus && (
@@ -254,7 +258,7 @@ export default function CheckInOut() {
               disabled={isRefreshing}
               className="mt-2 px-2 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600 disabled:bg-gray-400"
             >
-              {isRefreshing ? 'Refreshing...' : 'Refresh Status'}
+              {isRefreshing ? t('refreshing') : t('refreshStatus')}
             </button>
           </div>
         </details>
@@ -267,15 +271,15 @@ export default function CheckInOut() {
             <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-600">Checked In</p>
+                  <p className="text-sm text-gray-600">{t('checkedIn')}</p>
                   <p className="text-xl font-semibold text-blue-900">
                     {todayStatus.in_time 
                       ? todayStatus.in_time
-                      : 'Not yet'}
+                      : t('notYet')}
                   </p>
                   {todayStatus.status && (
                     <p className="text-xs text-blue-600 mt-1">
-                      Status: <span className="font-semibold">{todayStatus.status}</span>
+                      {t('status')}: <span className="font-semibold">{todayStatus.status}</span>
                     </p>
                   )}
                 </div>
@@ -287,11 +291,11 @@ export default function CheckInOut() {
             <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-600">Checked Out</p>
+                  <p className="text-sm text-gray-600">{t('checkedOut')}</p>
                   <p className="text-xl font-semibold text-purple-900">
                     {todayStatus.out_time 
                       ? todayStatus.out_time
-                      : 'Not yet'}
+                      : t('notYet')}
                   </p>
                 </div>
                 <LogOut className="w-8 h-8 text-purple-600" />
@@ -301,9 +305,9 @@ export default function CheckInOut() {
             {/* Work Duration */}
             {todayStatus.in_time && todayStatus.out_time && (
               <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-                <p className="text-sm text-gray-600">Total Hours Worked</p>
+                <p className="text-sm text-gray-600">{t('totalHoursWorked')}</p>
                 <p className="text-lg font-semibold text-green-900">
-                  {todayStatus.worked_hours ? todayStatus.worked_hours.toFixed(2) : '0'} hours
+                  {todayStatus.worked_hours ? todayStatus.worked_hours.toFixed(2) : '0'} {t('hours')}
                 </p>
               </div>
             )}
@@ -318,12 +322,12 @@ export default function CheckInOut() {
                   onClick={handleCheckOut}
                 >
                   <LogOut className="w-4 h-4 mr-2 inline" />
-                  Check Out
+                  {t('checkOut')}
                 </Button>
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Add notes (optional)"
+                  placeholder={t('addNotesOptional')}
                   className="w-full p-2 border rounded text-sm"
                   rows={2}
                 />
@@ -339,7 +343,7 @@ export default function CheckInOut() {
                   onClick={handleCheckIn}
                 >
                   <LogIn className="w-4 h-4 mr-2 inline" />
-                  Check In Now
+                  {t('checkInNow')}
                 </Button>
               </div>
             )}
@@ -347,8 +351,8 @@ export default function CheckInOut() {
         ) : (
           <div className="text-center py-8">
             <Clock className="w-12 h-12 mx-auto text-gray-400 mb-3" />
-            <p className="text-gray-600 font-medium">Not checked in yet</p>
-            <p className="text-sm text-gray-500 mt-1">Click the button below to check in</p>
+            <p className="text-gray-600 font-medium">{t('notCheckedInYet')}</p>
+            <p className="text-sm text-gray-500 mt-1">{t('clickButtonBelowToCheckIn')}</p>
             <Button 
               variant="primary" 
               fullWidth 
@@ -357,7 +361,7 @@ export default function CheckInOut() {
               className="mt-4"
             >
               <LogIn className="w-4 h-4 mr-2 inline" />
-              Check In Now
+              {t('checkInNow')}
             </Button>
           </div>
         )}

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AlertCircle, CheckCircle, XCircle, Check, X } from 'lucide-react';
 import api from '../services/api';
 import { useLanguage } from '../context/LanguageContext';
+import Header from './layout/Header';
 
 const OvertimeApproval = () => {
   const { t } = useLanguage();
@@ -91,15 +92,12 @@ const OvertimeApproval = () => {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">{t('overtimeApprovals')}</h1>
-        <p className="text-gray-600 mt-1">{t('reviewApproveOvertimeRequests')}</p>
-      </div>
-
-      {/* Status Filter */}
-      <div className="flex gap-2">
+    <>
+      <Header title={t('overtimeApprovals')} subtitle={t('reviewApproveOvertimeRequests')} />
+      <div className="p-6">
+        <div className="space-y-6">
+          {/* Status Filter */}
+          <div className="flex gap-2">
         {[{ key: 'PENDING', label: 'pending' }, { key: 'APPROVED', label: 'approved' }, { key: 'REJECTED', label: 'rejected' }].map(({ key, label }) => (
           <button
             key={key}
@@ -273,7 +271,9 @@ const OvertimeApproval = () => {
           ))}
         </div>
       )}
-    </div>
+        </div>
+      </div>
+    </>
   );
 };
 

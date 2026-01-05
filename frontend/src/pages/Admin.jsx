@@ -111,21 +111,6 @@ const AdminDashboardHome = () => {
             </Card>
           ))}
         </div>
-        <Card title={t('recentActivity')}>
-          <div className="space-y-4">
-            <div>
-              <h4 className="font-semibold text-gray-900 mb-2">{t('recentActivity')}</h4>
-              <p className="text-gray-600">System is running smoothly. All services operational.</p>
-            </div>
-            <div>
-              <h4 className="font-semibold text-gray-900 mb-2">Quick Stats</h4>
-              <p className="text-gray-600">
-                Managing {stats.totalDepartments} departments with {stats.totalManagers} managers
-                overseeing {stats.totalEmployees} employees.
-              </p>
-            </div>
-          </div>
-        </Card>
       </div>
     </div>
   );
@@ -443,35 +428,35 @@ const AdminManagers = () => {
   };
 
   const columns = [
-    { header: 'Manager ID', accessor: 'manager_id', width: '100px' },
-    { header: 'Username', accessor: 'username', width: '120px' },
-    { header: 'Full Name', accessor: 'full_name', width: '180px' },
-    { header: 'Email', accessor: 'email', width: '180px' },
+    { header: t('managerId'), accessor: 'manager_id', width: '100px' },
+    { header: t('username'), accessor: 'username', width: '120px' },
+    { header: t('fullName'), accessor: 'full_name', width: '180px' },
+    { header: t('email'), accessor: 'email', width: '180px' },
     {
-      header: 'Department',
+      header: t('department'),
       width: '150px',
       render: (row) => {
         const dept = departments.find(d => d.id === row.department_id);
         return (
           <span className="font-medium">
-            {dept ? dept.name : <span className="text-gray-400">Unassigned</span>}
+            {dept ? dept.name : <span className="text-gray-400">{t('unassigned')}</span>}
           </span>
         );
       }
     },
     {
-      header: 'Status',
+      header: t('status'),
       width: '100px',
       render: (row) => (
         <span className={`px-2 py-1 rounded-full text-xs font-medium ${
           row.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
         }`}>
-          {row.is_active ? 'Active' : 'Inactive'}
+          {row.is_active ? t('active') : t('inactive')}
         </span>
       )
     },
     {
-      header: 'Actions',
+      header: t('actions'),
       width: '100px',
       render: (row) => (
         <div className="flex gap-2">
@@ -482,7 +467,7 @@ const AdminManagers = () => {
             className="flex items-center gap-1"
           >
             <Edit2 className="w-4 h-4" />
-            Reassign
+            {t('reassign')}
           </Button>
           <Button
             variant="outline"
@@ -508,11 +493,11 @@ const AdminManagers = () => {
 
   return (
     <div>
-      <Header title={t('manageManagers')} subtitle="Create and manage department managers" />
+      <Header title={t('manageManagers')} subtitle={t('createAndManageDepartmentManagers')} />
       <div className="p-6 space-y-6">
         <Card
           title={t('manageManagers')}
-          subtitle={`${managers.length} total managers`}
+          subtitle={`${managers.length} ${t('totalManagers')}`}
           headerAction={
             <Button onClick={() => setShowModal(true)}>
               <Plus className="w-4 h-4 mr-2 inline" />
@@ -968,6 +953,7 @@ const AdminManagers = () => {
 
 const AdminDepartments = () => {
   const { t } = useLanguage();
+  const monthKeys = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
   const [departments, setDepartments] = useState([]);
   const [selectedDept, setSelectedDept] = useState(null);
   const [deptDetails, setDeptDetails] = useState(null);
@@ -1240,15 +1226,17 @@ const AdminDepartments = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900">{t('manageDepartments')}</h1>
-          <Button onClick={() => setShowModal(true)}>
-            <Plus className="w-4 h-4 mr-2 inline" />
-            {t('add')}
-          </Button>
-        </div>
+    <div>
+      <Header title={t('manageDepartments')} subtitle={t('departmentManagement')} />
+      <div className="min-h-screen bg-gray-50 p-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex justify-between items-center mb-8">
+            <h1 className="text-4xl font-bold text-gray-900">{t('manageDepartments')}</h1>
+            <Button onClick={() => setShowModal(true)}>
+              <Plus className="w-4 h-4 mr-2 inline" />
+              {t('add')}
+            </Button>
+          </div>
 
         {error && (
           <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
@@ -1422,7 +1410,7 @@ const AdminDepartments = () => {
                           >
                             {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                               <option key={m} value={m}>
-                                {new Date(2024, m - 1).toLocaleString('default', { month: 'long' })}
+                                {t(monthKeys[m - 1])}
                               </option>
                             ))}
                           </select>
@@ -1486,7 +1474,7 @@ const AdminDepartments = () => {
                         >
                           {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                             <option key={m} value={m}>
-                              {new Date(2024, m - 1).toLocaleString('default', { month: 'long' })}
+                              {t(monthKeys[m - 1])}
                             </option>
                           ))}
                         </select>
@@ -1575,7 +1563,7 @@ const AdminDepartments = () => {
                             <thead className="bg-gray-50">
                               <tr>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('employeeId')}</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('name')}</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('email')}</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('status')}</th>
                               </tr>
@@ -1640,8 +1628,8 @@ const AdminDepartments = () => {
                             <thead className="bg-gray-50">
                               <tr>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('employeeId')}</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Employee</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('employee')}</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('role')}</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assigned Shift</th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Hrs Assigned</th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Check-In</th>
@@ -1721,7 +1709,7 @@ const AdminDepartments = () => {
 
             {!deptDetails && !loading && (
               <Card className="text-center py-12">
-                <p className="text-gray-500 text-lg">Select a department from the list to view details</p>
+                <p className="text-gray-500 text-lg">{t('selectDepartmentFromList')}</p>
               </Card>
             )}
           </div>
@@ -1809,6 +1797,7 @@ const AdminDepartments = () => {
           </form>
         </Modal>
       </div>
+    </div>
     </div>
   );
 };

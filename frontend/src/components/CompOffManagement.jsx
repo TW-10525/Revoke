@@ -280,13 +280,13 @@ const CompOffManagement = ({ currentUser, departmentId }) => {
 
       {/* Info Box - What is this page for */}
       <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-        <p className="text-sm text-yellow-900 font-semibold mb-2">ℹ️ About Comp-Off Requests</p>
+        <p className="text-sm text-yellow-900 font-semibold mb-2">ℹ️ {t('aboutCompOffRequests')}</p>
         <p className="text-sm text-yellow-800 mb-2">
-          This page is for requesting to <strong>EARN</strong> comp-off days when you work on non-shift days (weekends, holidays).
+          {t('compOffInfoDescription')}
         </p>
         <ul className="text-sm text-yellow-800 space-y-1 list-disc list-inside">
-          <li><strong>To EARN comp-off:</strong> Submit a request here if you worked on a non-shift day</li>
-          <li><strong>To USE comp-off:</strong> Go to "Leave Requests" page and select leave type "Comp-Off (Use Earned)"</li>
+          <li><strong>{t('toEarnCompOff')}:</strong> {t('toEarnCompOffDetail')}</li>
+          <li><strong>{t('toUseCompOff')}:</strong> {t('toUseCompOffDetail')}</li>
         </ul>
       </div>
 
@@ -523,7 +523,7 @@ const CompOffManagement = ({ currentUser, departmentId }) => {
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-gray-200 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-800">
-            {currentUser?.user_type === 'employee' ? 'Your Comp-Off Earning Requests' : 'Comp-Off Earning Requests'}
+            {currentUser?.user_type === 'employee' ? t('yourCompOffEarningRequests') : t('compOffEarningRequests')}
           </h3>
           {currentUser?.user_type === 'employee' && (
             <button
@@ -531,21 +531,21 @@ const CompOffManagement = ({ currentUser, departmentId }) => {
               disabled={loading}
               className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition disabled:opacity-50"
             >
-              📥 Download Report
+              📥 {t('downloadReport')}
             </button>
           )}
         </div>
 
         {loading && !compOffRequests.length ? (
           <div className="p-6 text-center text-gray-500">
-            <p>Loading comp-off requests...</p>
+            <p>{t('loadingCompOffRequests')}</p>
           </div>
         ) : compOffRequests.length === 0 ? (
           <div className="p-6 text-center text-gray-500">
             <p>
               {currentUser?.user_type === 'employee'
-                ? 'No comp-off requests yet. Apply for comp-off on a free day.'
-                : 'No comp-off requests to review.'}
+                ? t('noCompOffRequestsYet')
+                : t('noCompOffRequestsToReview')}
             </p>
           </div>
         ) : (

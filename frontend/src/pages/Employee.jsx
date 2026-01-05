@@ -36,6 +36,7 @@ const EmployeeDashboardHome = ({ user }) => {
   const [todaySchedule, setTodaySchedule] = useState(null);
   const [loading, setLoading] = useState(true);
   const [leaveStats, setLeaveStats] = useState(null);
+  const monthKeys = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
 
   useEffect(() => {
     loadData();
@@ -70,7 +71,7 @@ const EmployeeDashboardHome = ({ user }) => {
 
   return (
     <div>
-      <Header title={t('employeeDashboard')} subtitle={`${t('welcomeBack')}, ${user.full_name}`} />
+      <Header title={t('employeeDashboard')} subtitle={`${t('welcome')}, ${user.full_name}`} />
       <div className="p-6">
         <div className="mb-6 flex justify-end">
           <Button 
@@ -98,7 +99,7 @@ const EmployeeDashboardHome = ({ user }) => {
           </div>
         )}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-          <Card title={`${t('todaysSchedule')}${format(new Date(), 'MMM dd, yyyy')}`}>
+          <Card title={`${t('todaysSchedule')}${t(monthKeys[new Date().getMonth()])} ${new Date().getDate()}, ${new Date().getFullYear()}`}>
             {todaySchedule ? (
               <div className="space-y-4">
                 {todaySchedule.status !== 'comp_off_taken' && (
@@ -181,6 +182,7 @@ const EmployeeCheckIn = ({ user }) => {
   const [notes, setNotes] = useState('');
   const [message, setMessage] = useState({ type: '', text: '' });
   const [loading, setLoading] = useState(true);
+  const monthKeys = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
 
   useEffect(() => {
     loadSchedule();
@@ -272,7 +274,7 @@ const EmployeeCheckIn = ({ user }) => {
           </div>
         )}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card title={`Today's Shift - ${format(new Date(), 'MMMM dd, yyyy')}`}>
+          <Card title={`${t('todaysShift')}${t(monthKeys[new Date().getMonth()])} ${new Date().getDate()}, ${new Date().getFullYear()}`}>
             <div className="space-y-4">
               <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg">
                 <div>
@@ -324,10 +326,10 @@ const EmployeeCheckIn = ({ user }) => {
                 </div>
                 <Button variant="success" fullWidth className="h-14 text-lg" onClick={handleCheckIn}>
                   <UserCheck className="w-6 h-6 mr-2 inline" />
-                  Check In Now
+                  {t('checkInNow')}
                 </Button>
                 <p className="text-xs text-gray-500 text-center">
-                  Click the button above when you arrive at your shift location
+                  {t('clickButtonWhenArrive')}
                 </p>
               </div>
             ) : (
@@ -341,22 +343,22 @@ const EmployeeCheckIn = ({ user }) => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Notes (Optional)
+                    {t('notesOptional')}
                   </label>
                   <textarea
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                     rows="3"
-                    placeholder="Add any notes about your shift..."
+                    placeholder={t('addAnyNotesAboutShift')}
                   />
                 </div>
                 <Button variant="danger" fullWidth className="h-14 text-lg" onClick={handleCheckOut}>
                   <LogOut className="w-6 h-6 mr-2 inline" />
-                  Check Out Now
+                  {t('checkOutNow')}
                 </Button>
                 <p className="text-xs text-gray-500 text-center">
-                  Click the button above when you're leaving
+                  {t('clickButtonWhenLeaving')}
                 </p>
               </div>
             )}
@@ -380,6 +382,7 @@ const EmployeeSchedule = () => {
   const [schedules, setSchedules] = useState([]);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [loading, setLoading] = useState(true);
+  const monthKeys = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
 
   useEffect(() => {
     loadSchedules();
@@ -414,7 +417,7 @@ const EmployeeSchedule = () => {
                 <ChevronLeft className="w-4 h-4" />
               </Button>
               <h2 className="text-xl font-semibold">
-                {format(currentMonth, 'MMMM yyyy')}
+                {t(monthKeys[currentMonth.getMonth()])} {currentMonth.getFullYear()}
               </h2>
               <Button variant="outline" size="sm" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
                 <ChevronRight className="w-4 h-4" />
@@ -427,7 +430,7 @@ const EmployeeSchedule = () => {
               className="flex items-center gap-2"
             >
               <RefreshCw className="w-4 h-4" />
-              Refresh
+              {t('refresh')}
             </Button>
           </div>
           {schedules.length === 0 ? (
@@ -759,11 +762,11 @@ const EmployeeLeaves = ({ user }) => {
         )}
         <Card
           title={t('myLeaveRequests')}
-          subtitle={`${leaves.length} total requests`}
+          subtitle={`${leaves.length} ${t('totalRequests')}`}
           headerAction={
             <Button onClick={() => setShowModal(true)}>
               <Plus className="w-4 h-4 mr-2 inline" />
-              New Request
+              {t('newRequest')}
             </Button>
           }
         >
@@ -926,6 +929,7 @@ const EmployeeAttendance = () => {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ present: 0, late: 0, absent: 0 });
   const [downloading, setDownloading] = useState(false);
+  const monthKeys = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
 
   useEffect(() => {
     loadAttendance();
@@ -1040,7 +1044,7 @@ const EmployeeAttendance = () => {
                 <ChevronLeft className="w-4 h-4" />
               </Button>
               <h2 className="text-xl font-semibold">
-                {format(currentMonth, 'MMMM yyyy')}
+                {t(monthKeys[currentMonth.getMonth()])} {currentMonth.getFullYear()}
               </h2>
               <Button variant="outline" size="sm" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
                 <ChevronRight className="w-4 h-4" />
@@ -1152,12 +1156,12 @@ const EmployeeAttendance = () => {
             </div>
           )}
         </Card>
-        <Card title="Attendance Tips" className="mt-6">
+        <Card title={t('attendanceTips')} className="mt-6">
           <ul className="space-y-2 text-sm text-gray-600">
-            <li>• Always check in on time to maintain a good attendance record</li>
-            <li>• Late arrivals may impact your performance reviews</li>
-            <li>• If you'll be late or absent, notify your manager in advance</li>
-            <li>• Your attendance history is visible to management</li>
+            <li>• {t('alwaysCheckInOnTime')}</li>
+            <li>• {t('lateArrivalsMayImpact')}</li>
+            <li>• {t('notifyManagerInAdvance')}</li>
+            <li>• {t('attendanceHistoryVisible')}</li>
           </ul>
         </Card>
       </div>
@@ -1220,7 +1224,7 @@ const EmployeeMessages = () => {
             <div className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500 mb-1">Unread Messages</p>
+                  <p className="text-sm text-gray-500 mb-1">{t('unreadMessages')}</p>
                   <p className="text-3xl font-bold text-blue-600">{unreadCount}</p>
                 </div>
                 <Mail className="w-8 h-8 text-blue-600" />
@@ -1231,7 +1235,7 @@ const EmployeeMessages = () => {
             <div className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500 mb-1">Total Messages</p>
+                  <p className="text-sm text-gray-500 mb-1">{t('totalMessages')}</p>
                   <p className="text-3xl font-bold text-gray-900">{messages.length}</p>
                 </div>
                 <MailOpen className="w-8 h-8 text-gray-600" />
