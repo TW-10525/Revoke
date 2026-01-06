@@ -1,5 +1,5 @@
 # INDIVIDUAL EMPLOYEE MONTHLY REPORT - ISSUE & SOLUTION SUMMARY
-
+##########################################
 ## 🎯 THE REAL ISSUE
 
 You were getting a **403 Forbidden** error because you were trying to download a report for an **employee in a different department**.
