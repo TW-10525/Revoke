@@ -181,7 +181,7 @@ const CompOffManagement = ({ currentUser, departmentId }) => {
       link.click();
       link.parentChild.removeChild(link);
     } catch (err) {
-      let errorMsg = 'Failed to download report';
+      let errorMsg = t('failedToDownloadReport');
       if (err.response?.data?.detail) {
         const detail = err.response.data.detail;
         if (typeof detail === 'string') {
@@ -315,7 +315,7 @@ const CompOffManagement = ({ currentUser, departmentId }) => {
                       {new Date(month.month + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
                     </h4>
                     <span className="text-xs bg-white px-2 py-1 rounded border border-gray-300">
-                      Expires: {new Date(month.expiry_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      {t('expires')}: {new Date(month.expiry_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                     </span>
                   </div>
                   
@@ -340,14 +340,19 @@ const CompOffManagement = ({ currentUser, departmentId }) => {
                   
                   {month.details && month.details.length > 0 && (
                     <div className="text-xs text-gray-600 space-y-1">
-                      <p className="font-semibold text-gray-700">Transaction History:</p>
-                      {month.details.slice(0, 3).map((detail, idx) => (
-                        <p key={idx} className="text-gray-600">
-                          • {new Date(detail.date).toLocaleDateString()} - {detail.type.toUpperCase()}: {detail.notes}
-                        </p>
-                      ))}
+                      <p className="font-semibold text-gray-700">{t('transactionHistory')}:</p>
+                      {month.details.slice(0, 3).map((detail, idx) => {
+                        const detailText = detail.type === 'earned' 
+                          ? `${t('earnedByWorkingOn')} ${detail.notes.split('on ')[1] || detail.notes}`
+                          : `${t('usedOn')} ${detail.notes.split('on ')[1] || detail.notes}`;
+                        return (
+                          <p key={idx} className="text-gray-600">
+                            • {new Date(detail.date).toLocaleDateString()} - {detail.type.toUpperCase()}: {detailText}
+                          </p>
+                        );
+                      })}
                       {month.details.length > 3 && (
-                        <p className="text-gray-500 italic">+ {month.details.length - 3} more transactions</p>
+                        <p className="text-gray-500 italic">+ {month.details.length - 3} {t('moreTransactions')}</p>
                       )}
                     </div>
                   )}
