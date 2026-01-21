@@ -4,6 +4,7 @@ import Login from './pages/Login';
 import EmployeeDashboard from './pages/Employee';
 import ManagerDashboard from './pages/Manager';
 import AdminDashboard from './pages/Admin';
+import DeptAccessWrapper from './pages/DeptAccess';
 import { LanguageProvider } from './context/LanguageContext';
 
 function App() {
@@ -62,6 +63,19 @@ function App() {
             element={
               user ? <Navigate to="/" /> : <Login onLogin={handleLogin} />
             } 
+          />
+          
+          <Route
+            path="/admin/access-dept/*"
+            element={
+              !user ? (
+                <Navigate to="/login" />
+              ) : user.user_type === 'admin' || user.user_type === 'sub_admin' ? (
+                <DeptAccessWrapper user={user} onLogout={handleLogout} onRoleSwitch={handleRoleSwitch} />
+              ) : (
+                <Navigate to="/" />
+              )
+            }
           />
           
           <Route

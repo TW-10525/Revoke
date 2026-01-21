@@ -5,7 +5,7 @@ import Modal from './common/Modal';
 import { generateSchedules } from '../services/api';
 import { format, addDays, startOfWeek } from 'date-fns';
 
-const ScheduleGenerator = ({ onSuccess, onClose }) => {
+const ScheduleGenerator = ({ onSuccess, onClose, departmentId = null }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [feedback, setFeedback] = useState([]);
@@ -29,7 +29,7 @@ const ScheduleGenerator = ({ onSuccess, onClose }) => {
       setError('');
       setFeedback([]);
 
-      const response = await generateSchedules(startDate, endDate);
+      const response = await generateSchedules(startDate, endDate, departmentId);
       const data = response.data;
 
       setFeedback(data.feedback || []);

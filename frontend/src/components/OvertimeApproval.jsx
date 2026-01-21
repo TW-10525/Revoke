@@ -4,7 +4,7 @@ import api from '../services/api';
 import { useLanguage } from '../context/LanguageContext';
 import Header from './layout/Header';
 
-const OvertimeApproval = ({ onRoleSwitch }) => {
+const OvertimeApproval = ({ user, onRoleSwitch }) => {
   const { t } = useLanguage();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -21,7 +21,12 @@ const OvertimeApproval = ({ onRoleSwitch }) => {
   const loadPendingRequests = async () => {
     try {
       setLoading(true);
-      const response = await api.get(`/overtime-requests?status=${filterStatus}`);
+      const params = new URLSearchParams();
+      params.append('status', filterStatus);
+      if (user?.manager_department_id) {
+        params.append('department_id', user.manager_department_id);
+      }
+      const response = await api.get(`/overtime-requests?${params.toString()}`);
       setRequests(response.data);
     } catch (error) {
       console.error('Error loading overtime requests:', error);

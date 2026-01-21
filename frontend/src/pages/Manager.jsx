@@ -196,9 +196,14 @@ const ManagerEmployees = ({ user, onRoleSwitch }) => {
   const loadData = async () => {
     try {
       setLoading(true);
+      const deptId = managerDeptId || user?.manager_department_id;
+      const params = { show_inactive: showInactive };
+      if (deptId) {
+        params.department_id = deptId;
+      }
       const [employeesRes, rolesRes] = await Promise.all([
-        api.get('/employees', { params: { show_inactive: showInactive } }),
-        listRoles()
+        api.get('/employees', { params }),
+        listRoles(deptId)
       ]);
       setEmployees(employeesRes.data);
       setRoles(rolesRes.data);
@@ -694,7 +699,8 @@ const ManagerRoles = ({ user, onRoleSwitch }) => {
   const loadRoles = async () => {
     try {
       setLoading(true);
-      const response = await listRoles();
+      const deptId = user?.manager_department_id;
+      const response = await listRoles(deptId);
       console.log('Loaded roles:', response.data);
       setRoles(response.data);
 
@@ -1499,9 +1505,13 @@ const ManagerSchedules = ({ user, onRoleSwitch }) => {
   const loadData = async () => {
     try {
       setLoading(true);
+      const params = {};
+      if (user?.manager_department_id) {
+        params.department_id = user.manager_department_id;
+      }
       const [empRes, rolesRes] = await Promise.all([
-        listEmployees(),
-        listRoles()
+        api.get('/employees', { params }),
+        listRoles(user?.manager_department_id)
       ]);
 
       setEmployees(empRes?.data || []);
@@ -1526,6 +1536,7 @@ const ManagerSchedules = ({ user, onRoleSwitch }) => {
       <Header title={t('scheduleManagement')} subtitle={t('scheduleSubtitle')} user={user} onRoleSwitch={onRoleSwitch} />
       <div className="p-6">
         <ScheduleManager
+          departmentId={user?.manager_department_id}
           employees={employees}
           roles={roles}
         />
@@ -1548,7 +1559,7 @@ function getWeekDates() {
   return weekDates;
 }
 
-const ManagerLeaves = ({ onRoleSwitch }) => {
+const ManagerLeaves = ({ user, onRoleSwitch }) => {
   const { t } = useLanguage();
   const [leaves, setLeaves] = useState([]);
   const [selectedLeave, setSelectedLeave] = useState(null);
@@ -1567,7 +1578,11 @@ const ManagerLeaves = ({ onRoleSwitch }) => {
 
   const loadLeaves = async () => {
     try {
-      const response = await listLeaveRequests();
+      const params = {};
+      if (user?.manager_department_id) {
+        params.department_id = user.manager_department_id;
+      }
+      const response = await api.get('/leave-requests', { params });
       setLeaves(response.data);
     } catch (error) {
       console.error('Failed to load leave requests:', error);
@@ -2619,20 +2634,20 @@ const ManagerAttendance = ({ user, onRoleSwitch }) => {
     // load roles so we can resolve role names when schedule.role object is not included
     (async () => {
       try {
-        const res = await listRoles();
+        const deptId = user?.manager_department_id;
+        const res = await listRoles(deptId);
         setRoles(res.data || []);
       } catch (err) {
         console.error('Failed to load roles for attendance view:', err);
       }
     })();
-  }, []);
+  }, [user?.manager_department_id]);
 
   const loadManagerDepartment = async () => {
     try {
-      // Get the current manager's department
-      const response = await api.get('/managers/me');
-      if (response.data && response.data.department_id) {
-        setManagerDepartmentId(response.data.department_id);
+      // Get the current manager's department from user object
+      if (user?.manager_department_id) {
+        setManagerDepartmentId(user.manager_department_id);
       }
     } catch (err) {
       console.error('Failed to load manager department:', err);
@@ -2642,7 +2657,8 @@ const ManagerAttendance = ({ user, onRoleSwitch }) => {
   const loadAttendance = async () => {
     try {
       const today = format(new Date(), 'yyyy-MM-dd');
-      const response = await getAttendance(today, today);
+      const deptId = managerDepartmentId || user?.manager_department_id;
+      const response = await getAttendance(today, today, deptId);
       setAttendance(response.data);
 
       // Calculate real statistics from attendance data
@@ -3436,4 +3452,5 @@ const ManagerDashboard = ({ user, onLogout, onRoleSwitch }) => {
   );
 };
 
+export { ManagerDashboardHome, ManagerEmployees, ManagerRoles, ManagerSchedules, ManagerLeaves, ManagerAttendance, ManagerMessages };
 export default ManagerDashboard;

@@ -37,7 +37,11 @@ const CompOffManagement = ({ currentUser, departmentId }) => {
     setError('');
     try {
       // Load comp-off requests
-      const requestsRes = await listCompOffRequests();
+      const params = {};
+      if (departmentId) {
+        params.department_id = departmentId;
+      }
+      const requestsRes = await api.get('/comp-off-requests', { params });
       setCompOffRequests(requestsRes.data);
 
       // Load comp-off tracking if employee
