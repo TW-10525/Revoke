@@ -277,6 +277,41 @@ async def add_employee_id_column():
         print(f"Employee ID migration error: {e}")
 
 
+async def allow_manager_department_nullable():
+    """Ensure managers.department_id is nullable and reactivate unassigned managers"""
+    from app.database import engine
+    from sqlalchemy import text
+
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text("""
+                SELECT is_nullable FROM information_schema.columns
+                WHERE table_name='managers' AND column_name='department_id'
+            """))
+            is_nullable = result.scalar()
+            if is_nullable == "YES":
+                print("✓ managers.department_id already nullable")
+            else:
+                print("Altering managers.department_id to be nullable...")
+                await conn.execute(text("""
+                    ALTER TABLE managers
+                    ALTER COLUMN department_id DROP NOT NULL
+                """))
+                await conn.commit()
+                print("✓ managers.department_id is now nullable")
+
+            # Ensure previously unassigned managers remain visible
+            await conn.execute(text("""
+                UPDATE managers
+                SET is_active = TRUE
+                WHERE department_id IS NULL
+            """))
+            await conn.commit()
+            print("✓ Reactivated unassigned managers")
+    except Exception as e:
+        print(f"Manager department nullable migration error: {e}")
+
+
 async def upgrade_sub_admin_and_audit():
     """Run database migrations for sub-admin and audit log tables"""
     from app.database import engine
@@ -619,6 +654,7 @@ async def startup_event():
     # Run migrations in order
     await add_employee_id_column()
     await add_manager_id_column()
+    await allow_manager_department_nullable()
     await upgrade_database()
     await upgrade_sub_admin_and_audit()
     await fix_employee_email_constraint()
@@ -671,6 +707,32 @@ def get_cycle_dates(employment_type: str, reference_date: date = None):
             last_day = reference_date.replace(month=reference_date.month + 1, day=1) - timedelta(days=1)
         
         return first_day, last_day
+
+
+# Helper to ensure only one manager per department while keeping prior managers active/unassigned
+async def assign_manager_to_department(db: AsyncSession, manager: Manager, department_id: int):
+    now = datetime.utcnow()
+
+    # Unassign any other managers currently on this department
+    existing_result = await db.execute(
+        select(Manager).filter(
+            and_(
+                Manager.department_id == department_id,
+                Manager.id != manager.id
+            )
+        )
+    )
+    for existing in existing_result.scalars().all():
+        existing.department_id = None
+        existing.is_active = True
+        existing.updated_at = now
+        db.add(existing)
+
+    # Assign this manager
+    manager.department_id = department_id
+    manager.is_active = True
+    manager.updated_at = now
+    db.add(manager)
 
 
 # Custom exception handler for HTTPException to include CORS headers
@@ -1008,6 +1070,11 @@ async def create_user(
     if result.scalars().first():
         raise HTTPException(status_code=400, detail="Username already exists")
     
+    # Check if email exists
+    result = await db.execute(select(User).filter(User.email == user_data.email))
+    if result.scalars().first():
+        raise HTTPException(status_code=400, detail="Email already exists")
+    
     new_user = User(
         username=user_data.username,
         email=user_data.email,
@@ -1122,8 +1189,9 @@ async def create_sub_admin(
     if existing.scalars().first():
         raise HTTPException(status_code=400, detail="This user is already a sub-admin")
     
-    # Update user type to SUB_ADMIN
-    emp_user.user_type = UserType.SUB_ADMIN
+    # Note: Do NOT change user_type to SUB_ADMIN - keep their original type (MANAGER or EMPLOYEE)
+    # Sub-admin status is tracked via the SubAdmin table, not the user_type field
+    # This allows users to be both managers and sub-admins simultaneously
     
     # Create sub-admin record
     sub_admin = SubAdmin(
@@ -1640,47 +1708,7 @@ async def create_manager(
     if not result.scalars().first():
         raise HTTPException(status_code=404, detail="Department not found")
     
-    # Check if another manager is already assigned to this department
-    existing_result = await db.execute(
-        select(Manager).filter(
-            and_(
-                Manager.department_id == mgr_data.department_id,
-                Manager.is_active == True
-            )
-        ).options(selectinload(Manager.user))
-    )
-    existing_manager = existing_result.scalars().first()
-    
-    if existing_manager:
-        if not force_reassign:
-            # Return existing manager info for frontend confirmation
-            return {
-                "status": "conflict",
-                "message": "Manager already assigned to this department",
-                "action_required": "reassign",
-                "existing_manager": {
-                    "id": existing_manager.id,
-                    "manager_id": existing_manager.manager_id,
-                    "user_id": existing_manager.user_id,
-                    "username": existing_manager.user.username if existing_manager.user else None,
-                    "full_name": existing_manager.user.full_name if existing_manager.user else None,
-                    "email": existing_manager.user.email if existing_manager.user else None,
-                    "department_id": existing_manager.department_id,
-                    "is_active": existing_manager.is_active
-                },
-                "new_manager": {
-                    "user_id": mgr_data.user_id,
-                    "department_id": mgr_data.department_id
-                }
-            }
-        else:
-            # Reassign: unassign old manager from this department (don't deactivate)
-            existing_manager.department_id = None
-            existing_manager.updated_at = datetime.utcnow()
-            db.add(existing_manager)  # Ensure the change is tracked
-    
     # Generate manager_id (3-digit format)
-    # Get all managers and find the max ID number
     all_managers_result = await db.execute(select(Manager))
     all_managers = all_managers_result.scalars().all()
     max_id = max([int(m.manager_id) for m in all_managers if m.manager_id.isdigit()], default=0)
@@ -1690,22 +1718,64 @@ async def create_manager(
     manager = Manager(
         manager_id=new_manager_id,
         user_id=mgr_data.user_id,
-        department_id=mgr_data.department_id
+        department_id=None,  # set via helper for consistency
+        is_active=True
     )
     db.add(manager)
+    await db.flush()  # get manager.id for helper
+
+    # If another manager is on this department, either ask for confirmation or reassign
+    existing_result = await db.execute(
+        select(Manager)
+        .filter(
+            and_(
+                Manager.department_id == mgr_data.department_id,
+                Manager.id != manager.id
+            )
+        )
+        .options(selectinload(Manager.user))
+    )
+    existing_manager = existing_result.scalars().first()
+    
+    if existing_manager and not force_reassign:
+        # Don't commit; return conflict so frontend can confirm
+        await db.rollback()
+        return {
+            "status": "conflict",
+            "message": "Manager already assigned to this department",
+            "action_required": "reassign",
+            "existing_manager": {
+                "id": existing_manager.id,
+                "manager_id": existing_manager.manager_id,
+                "user_id": existing_manager.user_id,
+                "username": existing_manager.user.username if existing_manager.user else None,
+                "full_name": existing_manager.user.full_name if existing_manager.user else None,
+                "email": existing_manager.user.email if existing_manager.user else None,
+                "department_id": existing_manager.department_id,
+                "is_active": existing_manager.is_active
+            },
+            "new_manager": {
+                "user_id": mgr_data.user_id,
+                "department_id": mgr_data.department_id
+            }
+        }
+    
+    # Reassign department to the new manager, unassigning any existing ones
+    await assign_manager_to_department(db, manager, mgr_data.department_id)
     await db.commit()
-    await db.refresh(manager)
+    
+    # Reload with relations for safe serialization
+    result = await db.execute(
+        select(Manager)
+        .options(selectinload(Manager.user), selectinload(Manager.department))
+        .filter(Manager.id == manager.id)
+    )
+    manager = result.scalar_one()
     
     return {
         "status": "success",
         "message": "Manager assigned successfully",
-        "manager": {
-            "id": manager.id,
-            "manager_id": manager.manager_id,
-            "user_id": manager.user_id,
-            "department_id": manager.department_id,
-            "is_active": manager.is_active
-        }
+        "manager": ManagerResponse.model_validate(manager)
     }
 
 
@@ -1718,8 +1788,7 @@ async def list_managers(
     from sqlalchemy.orm import selectinload
     result = await db.execute(
         select(Manager)
-        .filter(Manager.is_active == True)
-        .options(selectinload(Manager.user))
+        .options(selectinload(Manager.user), selectinload(Manager.department))
     )
     managers = result.scalars().all()
     
@@ -1749,7 +1818,6 @@ async def list_managers_for_sub_admin(
     """Get all managers formatted for sub-admin selection with employee_id format"""
     result = await db.execute(
         select(Manager)
-        .filter(Manager.is_active == True)
         .options(
             selectinload(Manager.user),
             selectinload(Manager.department)
@@ -1811,7 +1879,7 @@ async def get_current_manager(
 @app.put("/managers/{manager_id}", response_model=ManagerResponse)
 async def update_manager(
     manager_id: int,
-    mgr_data: ManagerCreate,
+    mgr_data: ManagerUpdate,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ):
@@ -1823,11 +1891,11 @@ async def update_manager(
     
     # Check if another manager is already assigned to this department
     if mgr_data.department_id != manager.department_id:
+        # If another manager holds this department, return conflict so frontend can confirm reassignment
         existing_result = await db.execute(
             select(Manager).filter(
                 and_(
                     Manager.department_id == mgr_data.department_id,
-                    Manager.is_active == True,
                     Manager.id != manager_id
                 )
             )
@@ -1840,12 +1908,18 @@ async def update_manager(
                 headers={"X-Existing-Manager-Id": str(existing_manager.id)}
             )
     
-    manager.department_id = mgr_data.department_id
-    manager.updated_at = datetime.utcnow()
-    db.add(manager)
-    
+    # Assign and unassign others atomically
+    await assign_manager_to_department(db, manager, mgr_data.department_id)
+
     await db.commit()
-    await db.refresh(manager)
+    
+    # Reload with related user/department to avoid lazy-load during serialization
+    result = await db.execute(
+        select(Manager)
+        .options(selectinload(Manager.user), selectinload(Manager.department))
+        .filter(Manager.id == manager_id)
+    )
+    manager = result.scalar_one()
     
     return manager
 
@@ -1853,7 +1927,7 @@ async def update_manager(
 @app.put("/managers/{manager_id}/reassign", response_model=ManagerResponse)
 async def reassign_manager(
     manager_id: int,
-    mgr_data: ManagerCreate,
+    mgr_data: ManagerUpdate,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ):
@@ -1866,27 +1940,23 @@ async def reassign_manager(
     
     # If reassigning to a different department, unassign the existing manager
     if mgr_data.department_id != manager.department_id:
-        existing_result = await db.execute(
-            select(Manager).filter(
-                and_(
-                    Manager.department_id == mgr_data.department_id,
-                    Manager.is_active == True,
-                    Manager.id != manager_id
-                )
-            )
-        )
-        existing_manager = existing_result.scalars().first()
-        if existing_manager:
-            existing_manager.department_id = None
-            existing_manager.updated_at = datetime.utcnow()
-            db.add(existing_manager)  # Ensure the change is tracked
-    
-    manager.department_id = mgr_data.department_id
-    manager.updated_at = datetime.utcnow()
-    db.add(manager)
+        # Unassign any other managers on this department, then assign this one
+        await assign_manager_to_department(db, manager, mgr_data.department_id)
+    else:
+        # No change in department; ensure manager stays active
+        manager.is_active = True
+        manager.updated_at = datetime.utcnow()
+        db.add(manager)
     
     await db.commit()
-    await db.refresh(manager)
+    
+    # Reload with relations eagerly loaded for response
+    result = await db.execute(
+        select(Manager)
+        .options(selectinload(Manager.user), selectinload(Manager.department))
+        .filter(Manager.id == manager_id)
+    )
+    manager = result.scalar_one()
     
     return manager
 

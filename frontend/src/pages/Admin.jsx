@@ -170,12 +170,20 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
         usersMap[user.id] = user;
       });
       
-      // Merge manager and user info but keep manager.id intact (so deletes use the correct manager ID)
-      const enhancedManagers = managersRes.data.map(manager => ({
-        ...manager,
-        ...usersMap[manager.user_id],
-        id: manager.id
-      }));
+      const enhancedManagers = managersRes.data.map(manager => {
+        const user = usersMap[manager.user_id] || {};
+        return {
+          ...manager,
+          id: manager.id, // keep manager id (avoid overwrite from user.id)
+          user_id: manager.user_id,
+          username: user.username || manager.username,
+          full_name: user.full_name || manager.full_name,
+          email: user.email || manager.email,
+          department_id: manager.department_id !== undefined && manager.department_id !== null
+            ? Number(manager.department_id)
+            : manager.department_id
+        };
+      });
       
       setManagers(enhancedManagers);
       setDepartments(deptRes.data);
@@ -359,6 +367,12 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
     e.preventDefault();
     setReassignError('');
 
+    const deptId = parseInt(reassignData.department_id);
+    if (!deptId) {
+      setReassignError(t('assignToDepartment'));
+      return;
+    }
+
     if (!showReassignConfirm) {
       setShowReassignConfirm(true);
       return;
@@ -367,7 +381,7 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
     setSubmitting(true);
     try {
       await updateManager(selectedManager.id, {
-        department_id: reassignData.department_id ? parseInt(reassignData.department_id) : null
+        department_id: deptId
       });
       setShowReassignModal(false);
       setShowReassignConfirm(false);
@@ -375,7 +389,8 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
       loadData();
     } catch (err) {
       if (err.response?.status === 409) {
-        // Manager already assigned - show reassignment option
+        // Manager already assigned - close confirmation modal and show reassignment warning
+        setShowReassignConfirm(false);
         setShowReassignWarning(true);
       } else {
         setReassignError(err.response?.data?.detail || err.message || 'Failed to reassign manager');
@@ -388,9 +403,15 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
   const handleReassignForce = async () => {
     setReassignError('');
     setSubmitting(true);
+    const deptId = parseInt(reassignData.department_id);
+    if (!deptId) {
+      setReassignError(t('assignToDepartment'));
+      setSubmitting(false);
+      return;
+    }
     try {
       await reassignManager(selectedManager.id, {
-        department_id: reassignData.department_id ? parseInt(reassignData.department_id) : null
+        department_id: deptId
       });
       setShowReassignModal(false);
       setShowReassignWarning(false);
@@ -406,7 +427,7 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
 
   const openReassignModal = (manager) => {
     setSelectedManager(manager);
-    setReassignData({ department_id: manager.department_id || '' });
+    setReassignData({ department_id: manager.department_id ? String(manager.department_id) : '' });
     setShowReassignModal(true);
   };
 
@@ -694,7 +715,7 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                   disabled={submitting}
                 >
-                  <option value="">Unassign from department</option>
+                  <option value="">{t('selectDepartment') || 'Select department'}</option>
                   {departments.map(dept => (
                     <option key={dept.id} value={dept.id}>{dept.name}</option>
                   ))}
