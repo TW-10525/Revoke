@@ -1297,8 +1297,8 @@ const AdminDepartments = ({ user, onRoleSwitch }) => {
               <>
                 {/* Department Header */}
                 <Card className="mb-8 bg-gradient-to-r from-blue-50 to-blue-100 border-l-4 border-blue-500">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex-1">
                       <h2 className="text-2xl font-bold text-gray-900 mb-2">{deptDetails.name}</h2>
                       <p className="text-gray-600 mb-1">
                         <span className="font-semibold">{t('departmentId')}:</span> {deptDetails.dept_id}
@@ -1309,7 +1309,18 @@ const AdminDepartments = ({ user, onRoleSwitch }) => {
                         </p>
                       )}
                     </div>
+                    <Button
+                      onClick={() => {
+                        sessionStorage.setItem('accessDeptId', selectedDept);
+                        window.location.href = '/admin/access-dept';
+                      }}
+                      className="bg-green-500 hover:bg-green-600 text-white whitespace-nowrap ml-4"
+                    >
+                      🔑 {t('accessDept')}
+                    </Button>
+                  </div>
 
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Manager Info */}
                     <div className="bg-white rounded-lg p-4 border border-gray-200">
                       <h3 className="text-lg font-semibold text-gray-900 mb-3">{t('departmentManager')}</h3>

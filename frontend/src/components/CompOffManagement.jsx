@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Plus, CheckCircle, Clock, AlertCircle, TrendingDown } from 'lucide-react';
+import { Calendar, Plus, CheckCircle, Clock, AlertCircle, TrendingDown, Trash2 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import api, {
   listCompOffRequests,
@@ -8,7 +8,8 @@ import api, {
   createCompOffRequest,
   approveCompOff,
   rejectCompOff,
-  exportCompOffReport
+  exportCompOffReport,
+  cancelCompOffRequest
 } from '../services/api';
 
 const CompOffManagement = ({ currentUser, departmentId }) => {
@@ -37,7 +38,11 @@ const CompOffManagement = ({ currentUser, departmentId }) => {
     setError('');
     try {
       // Load comp-off requests
-      const requestsRes = await listCompOffRequests();
+      const params = {};
+      if (departmentId) {
+        params.department_id = departmentId;
+      }
+      const requestsRes = await api.get('/comp-off-requests', { params });
       setCompOffRequests(requestsRes.data);
 
       // Load comp-off tracking if employee
@@ -163,6 +168,46 @@ const CompOffManagement = ({ currentUser, departmentId }) => {
       }
       setError(errorMsg);
       console.error('Error rejecting comp-off:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRevokeCompOff = async (compOffId) => {
+    if (!window.confirm('Revoke this approved comp-off?')) return;
+    setLoading(true);
+    setError('');
+    try {
+      await rejectCompOff(compOffId, 'Revoked by manager');
+      await loadData();
+    } catch (err) {
+      let errorMsg = 'Failed to revoke comp-off';
+      if (err.response?.data?.detail) {
+        const detail = err.response.data.detail;
+        errorMsg = typeof detail === 'string' ? detail : (detail.msg || JSON.stringify(detail));
+      }
+      setError(errorMsg);
+      console.error('Error revoking comp-off:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelCompOff = async (compOffId) => {
+    if (!window.confirm('Withdraw this comp-off request?')) return;
+    setLoading(true);
+    setError('');
+    try {
+      await cancelCompOffRequest(compOffId);
+      await loadData();
+    } catch (err) {
+      let errorMsg = 'Failed to cancel comp-off';
+      if (err.response?.data?.detail) {
+        const detail = err.response.data.detail;
+        errorMsg = typeof detail === 'string' ? detail : (detail.msg || JSON.stringify(detail));
+      }
+      setError(errorMsg);
+      console.error('Error cancelling comp-off:', err);
     } finally {
       setLoading(false);
     }
@@ -555,7 +600,7 @@ const CompOffManagement = ({ currentUser, departmentId }) => {
                   )}
                   <th className="px-6 py-3 text-left font-semibold text-gray-700">{t('reason')}</th>
                   <th className="px-6 py-3 text-left font-semibold text-gray-700">{t('status')}</th>
-                  {currentUser?.user_type === 'manager' && (
+                  {(currentUser?.user_type === 'manager' || currentUser?.user_type === 'employee') && (
                     <th className="px-6 py-3 text-center font-semibold text-gray-700">{t('actions')}</th>
                   )}
                 </tr>
@@ -583,30 +628,44 @@ const CompOffManagement = ({ currentUser, departmentId }) => {
                     )}
                     <td className="px-6 py-4 text-gray-700">{request.reason || '-'}</td>
                     <td className="px-6 py-4">{getStatusBadge(request.status)}</td>
-                    {currentUser?.user_type === 'manager' && request.status === 'pending' && (
+                    {(currentUser?.user_type === 'manager' || currentUser?.user_type === 'employee') && (
                       <td className="px-6 py-4 text-center space-x-2">
-                        <button
-                          onClick={() => handleApproveCompOff(request.id)}
-                          disabled={loading}
-                          className="inline-block bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition disabled:opacity-50"
-                        >
-                          {t('approve')}
-                        </button>
-                        <button
-                          onClick={() => handleRejectCompOff(request.id)}
-                          disabled={loading}
-                          className="inline-block bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition disabled:opacity-50"
-                        >
-                          {t('reject')}
-                        </button>
-                      </td>
-                    )}
-                    {currentUser?.user_type === 'manager' && request.status !== 'pending' && (
-                      <td className="px-6 py-4 text-center text-gray-500">
-                        {request.review_notes && (
-                          <span title={request.review_notes} className="text-xs">
-                            {request.review_notes.substring(0, 20)}...
-                          </span>
+                        {currentUser?.user_type === 'manager' && request.status === 'pending' && (
+                          <>
+                            <button
+                              onClick={() => handleApproveCompOff(request.id)}
+                              disabled={loading}
+                              className="inline-block bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition disabled:opacity-50"
+                            >
+                              {t('approve')}
+                            </button>
+                            <button
+                              onClick={() => handleRejectCompOff(request.id)}
+                              disabled={loading}
+                              className="inline-block bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition disabled:opacity-50"
+                            >
+                              {t('reject')}
+                            </button>
+                          </>
+                        )}
+                        {currentUser?.user_type === 'manager' && request.status === 'approved' && (
+                          <button
+                            onClick={() => handleRevokeCompOff(request.id)}
+                            disabled={loading}
+                            className="inline-block bg-red-100 text-red-700 px-3 py-1 rounded hover:bg-red-200 transition disabled:opacity-50"
+                          >
+                            {t('revoke') || 'Revoke'}
+                          </button>
+                        )}
+                        {currentUser?.user_type === 'employee' && request.status === 'pending' && (
+                          <button
+                            onClick={() => handleCancelCompOff(request.id)}
+                            disabled={loading}
+                            className="inline-block bg-gray-100 text-red-600 px-3 py-1 rounded hover:bg-red-50 transition disabled:opacity-50"
+                          >
+                            <Trash2 className="w-3 h-3 inline mr-1" />
+                            {t('withdraw') || 'Withdraw'}
+                          </button>
                         )}
                       </td>
                     )}

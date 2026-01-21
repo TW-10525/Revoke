@@ -2294,6 +2294,17 @@ const translations = {
     noMessagesYet: 'まだメッセージはありません',
     sendFirstMessage: '最初のメッセージを送信して開始しましょう',
     areYouSureDeletingMessage: 'このメッセージを削除してもよろしいですか？',
+
+    // Department Access Page
+    accessDept: 'Access Dept',
+    departmentAccess: 'Department Access',
+    backToDepartments: 'Back to Departments',
+  },
+  ja: {
+    // Department Access Page
+    accessDept: 'アクセス部門',
+    departmentAccess: '部門アクセス',
+    backToDepartments: '部門に戻る',
   }
 };
 

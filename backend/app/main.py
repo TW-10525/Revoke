@@ -368,6 +368,247 @@ async def upgrade_sub_admin_and_audit():
         print(f"Sub-admin and audit migration error: {e}")
 
 
+async def fix_employee_email_constraint():
+    """Fix email uniqueness constraint to allow soft-deleted employees to reuse emails"""
+    from app.database import engine
+    from sqlalchemy import text
+    
+    try:
+        async with engine.begin() as conn:
+            # Drop the old unique constraint on email if it exists
+            try:
+                print("Fixing email uniqueness constraint...")
+                
+                # Check if the old constraint exists
+                result = await conn.execute(text("""
+                    SELECT constraint_name FROM information_schema.table_constraints
+                    WHERE table_name = 'employees' AND constraint_type = 'UNIQUE'
+                    AND constraint_name LIKE '%email%'
+                """))
+                constraint_name = result.scalar()
+                
+                if constraint_name:
+                    print(f"Dropping old constraint: {constraint_name}")
+                    await conn.execute(text(f"ALTER TABLE employees DROP CONSTRAINT {constraint_name}"))
+                    print("✓ Dropped old email unique constraint")
+                
+                # Drop old index if it exists
+                await conn.execute(text("DROP INDEX IF EXISTS ix_employees_email CASCADE"))
+                
+                # Create a partial unique index that only applies to active employees
+                print("Creating partial unique index for active employees...")
+                await conn.execute(text("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS ix_employees_email_active 
+                    ON employees(email) 
+                    WHERE is_active = TRUE
+                """))
+                print("✓ Created partial unique index: ix_employees_email_active")
+                print("✓ Emails from deleted employees can now be reused")
+                
+            except Exception as e:
+                print(f"Note: Email constraint migration - {e}")
+                
+    except Exception as e:
+        print(f"Email constraint migration error: {e}")
+
+
+async def fix_user_username_constraint():
+    """Fix username uniqueness constraint to allow soft-deleted users to reuse usernames"""
+    from app.database import engine
+    from sqlalchemy import text
+    
+    try:
+        async with engine.begin() as conn:
+            try:
+                print("Fixing username uniqueness constraint...")
+                
+                # Check if the old constraint exists
+                result = await conn.execute(text("""
+                    SELECT constraint_name FROM information_schema.table_constraints
+                    WHERE table_name = 'users' AND constraint_type = 'UNIQUE'
+                    AND constraint_name LIKE '%username%'
+                """))
+                constraint_name = result.scalar()
+                
+                if constraint_name:
+                    print(f"Dropping old constraint: {constraint_name}")
+                    await conn.execute(text(f"ALTER TABLE users DROP CONSTRAINT {constraint_name}"))
+                    print("✓ Dropped old username unique constraint")
+                
+                # Drop old index if it exists
+                await conn.execute(text("DROP INDEX IF EXISTS ix_users_username CASCADE"))
+                
+                # Create a partial unique index that only applies to active users
+                print("Creating partial unique index for active users...")
+                await conn.execute(text("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username_active 
+                    ON users(username) 
+                    WHERE is_active = TRUE
+                """))
+                print("✓ Created partial unique index: ix_users_username_active")
+                print("✓ Usernames from deleted users can now be reused")
+                
+            except Exception as e:
+                print(f"Note: Username constraint migration - {e}")
+                
+    except Exception as e:
+        print(f"Username constraint migration error: {e}")
+
+
+async def fix_user_email_constraint():
+    """Fix email uniqueness constraint in users table to allow soft-deleted users to reuse emails"""
+    from app.database import engine
+    from sqlalchemy import text
+    
+    try:
+        async with engine.begin() as conn:
+            try:
+                print("Fixing user email uniqueness constraint...")
+                
+                # Check if the old constraint exists
+                result = await conn.execute(text("""
+                    SELECT constraint_name FROM information_schema.table_constraints
+                    WHERE table_name = 'users' AND constraint_type = 'UNIQUE'
+                    AND constraint_name LIKE '%email%'
+                """))
+                constraint_name = result.scalar()
+                
+                if constraint_name:
+                    print(f"Dropping old constraint: {constraint_name}")
+                    await conn.execute(text(f"ALTER TABLE users DROP CONSTRAINT {constraint_name}"))
+                    print("✓ Dropped old user email unique constraint")
+                
+                # Drop old index if it exists
+                await conn.execute(text("DROP INDEX IF EXISTS ix_users_email CASCADE"))
+                
+                # Create a partial unique index that only applies to active users
+                print("Creating partial unique index for active user emails...")
+                await conn.execute(text("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email_active 
+                    ON users(email) 
+                    WHERE is_active = TRUE
+                """))
+                print("✓ Created partial unique index: ix_users_email_active")
+                print("✓ Emails from deleted users can now be reused")
+                
+            except Exception as e:
+                print(f"Note: User email constraint migration - {e}")
+                
+    except Exception as e:
+        print(f"User email constraint migration error: {e}")
+
+
+async def cleanup_duplicate_users():
+    """Remove duplicate User records (same username), keeping only the one with latest login"""
+    from app.database import engine
+    from sqlalchemy import text
+    
+    try:
+        async with engine.begin() as conn:
+            try:
+                print("Cleaning up duplicate user records...")
+                
+                # Find usernames with multiple User records
+                result = await conn.execute(text("""
+                    SELECT username, COUNT(*) as count FROM users
+                    GROUP BY username
+                    HAVING COUNT(*) > 1
+                """))
+                duplicates = result.fetchall()
+                
+                if duplicates:
+                    print(f"Found {len(duplicates)} usernames with duplicate user records")
+                    
+                    for username, count in duplicates:
+                        print(f"  Username '{username}': {count} records - keeping most recent, deleting {count-1}")
+                        
+                        # Get all user IDs for this username, ordered by last_login DESC (most recent first)
+                        ids_result = await conn.execute(text(f"""
+                            SELECT id FROM users 
+                            WHERE username = '{username}'
+                            ORDER BY last_login DESC NULLS LAST, id DESC
+                        """))
+                        user_ids = [row[0] for row in ids_result.fetchall()]
+                        
+                        # Keep first ID (most recent), delete the rest
+                        if len(user_ids) > 1:
+                            kept_user_id = user_ids[0]
+                            ids_to_delete = user_ids[1:]
+                            
+                            # First, update any employees referencing the old user to point to kept user
+                            for old_user_id in ids_to_delete:
+                                await conn.execute(text(f"""
+                                    UPDATE employees SET user_id = {kept_user_id}
+                                    WHERE user_id = {old_user_id}
+                                """))
+                            
+                            # Now delete the duplicate users
+                            await conn.execute(text(f"""
+                                DELETE FROM users WHERE id IN ({','.join(str(id) for id in ids_to_delete)})
+                            """))
+                    
+                    print("✓ Cleaned up duplicate user records")
+                else:
+                    print("✓ No duplicate user records found")
+                    
+            except Exception as e:
+                print(f"Note: Cleanup duplicate users - {e}")
+                
+    except Exception as e:
+        print(f"Cleanup duplicate users error: {e}")
+
+
+async def cleanup_duplicate_managers():
+    """Remove duplicate manager records for the same user_id, keeping only the first one"""
+    from app.database import engine
+    from sqlalchemy import text
+    
+    try:
+        async with engine.begin() as conn:
+            try:
+                print("Cleaning up duplicate manager records...")
+                
+                # Find users with multiple manager records
+                result = await conn.execute(text("""
+                    SELECT user_id, COUNT(*) as count FROM managers
+                    GROUP BY user_id
+                    HAVING COUNT(*) > 1
+                """))
+                duplicates = result.fetchall()
+                
+                if duplicates:
+                    print(f"Found {len(duplicates)} users with duplicate manager records")
+                    
+                    for user_id, count in duplicates:
+                        print(f"  User {user_id}: {count} manager records - keeping oldest, deleting {count-1}")
+                        
+                        # Get all manager IDs for this user, ordered by id (oldest first)
+                        ids_result = await conn.execute(text(f"""
+                            SELECT id FROM managers 
+                            WHERE user_id = {user_id}
+                            ORDER BY id ASC
+                        """))
+                        manager_ids = [row[0] for row in ids_result.fetchall()]
+                        
+                        # Delete all except the first (oldest)
+                        if len(manager_ids) > 1:
+                            ids_to_delete = manager_ids[1:]
+                            placeholders = ','.join(['?' for _ in ids_to_delete])
+                            await conn.execute(text(f"""
+                                DELETE FROM managers WHERE id IN ({','.join(str(id) for id in ids_to_delete)})
+                            """))
+                    
+                    print("✓ Cleaned up duplicate manager records")
+                else:
+                    print("✓ No duplicate manager records found")
+                    
+            except Exception as e:
+                print(f"Note: Cleanup duplicate managers - {e}")
+                
+    except Exception as e:
+        print(f"Cleanup duplicate managers error: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
     """Run all database migrations on startup"""
@@ -380,6 +621,11 @@ async def startup_event():
     await add_manager_id_column()
     await upgrade_database()
     await upgrade_sub_admin_and_audit()
+    await fix_employee_email_constraint()
+    await fix_user_username_constraint()
+    await fix_user_email_constraint()
+    await cleanup_duplicate_users()
+    await cleanup_duplicate_managers()
     
     print("="*60)
     print("All migrations completed!")
@@ -623,7 +869,7 @@ async def login(
     request: Request = None
 ):
     result = await db.execute(select(User).filter(User.username == form_data.username))
-    user = result.scalar_one_or_none()
+    user = result.scalars().first()
     
     if not user or not verify_password(form_data.password, user.hashed_password):
         # Log failed login attempt
@@ -665,12 +911,14 @@ async def login(
     
     # Check if user is also a manager (even if they're not user_type==MANAGER)
     manager_result = await db.execute(select(Manager).filter(Manager.user_id == user.id))
-    if manager_result.scalar_one_or_none() and "manager" not in available_roles:
+    manager_record = manager_result.scalars().first()
+    if manager_record and "manager" not in available_roles:
         available_roles.append("manager")
     
     # Check if user is also a sub-admin (even if they're not user_type==SUB_ADMIN)
     sub_admin_result = await db.execute(select(SubAdmin).filter(SubAdmin.user_id == user.id, SubAdmin.is_active == True))
-    if sub_admin_result.scalar_one_or_none() and "sub_admin" not in available_roles:
+    sub_admin_record = sub_admin_result.scalars().first()
+    if sub_admin_record and "sub_admin" not in available_roles:
         available_roles.append("sub_admin")
     
     # Determine selected role (default to current user_type or first available role)
@@ -683,7 +931,7 @@ async def login(
     manager_department_id = None
     if selected_role == "manager" or user.user_type == UserType.MANAGER:
         manager_res = await db.execute(select(Manager).filter(Manager.user_id == user.id))
-        manager = manager_res.scalar_one_or_none()
+        manager = manager_res.scalars().first()
         if manager:
             manager_department_id = manager.department_id
     
@@ -731,7 +979,7 @@ async def read_users_me(
     # For managers, include their department_id
     if current_user.user_type == UserType.MANAGER:
         mgr_result = await db.execute(select(Manager).filter(Manager.user_id == current_user.id))
-        manager = mgr_result.scalar_one_or_none()
+        manager = mgr_result.scalars().first()
         if manager:
             # Create a response with manager_department_id
             response_dict = {
@@ -757,7 +1005,7 @@ async def create_user(
 ):
     # Check if username exists
     result = await db.execute(select(User).filter(User.username == user_data.username))
-    if result.scalar_one_or_none():
+    if result.scalars().first():
         raise HTTPException(status_code=400, detail="Username already exists")
     
     new_user = User(
@@ -796,7 +1044,7 @@ async def delete_user(
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
     
     result = await db.execute(select(User).filter(User.id == user_id))
-    user = result.scalar_one_or_none()
+    user = result.scalars().first()
     
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -806,7 +1054,7 @@ async def delete_user(
         result = await db.execute(
             select(Manager).filter(Manager.user_id == user_id)
         )
-        manager = result.scalar_one_or_none()
+        manager = result.scalars().first()
         if manager:
             await db.delete(manager)
     
@@ -840,7 +1088,7 @@ async def create_sub_admin(
             .filter(Manager.user_id == sub_admin_data.employee_id)
             .options(selectinload(Manager.user))
         )
-        manager = mgr_result.scalar_one_or_none()
+        manager = mgr_result.scalars().first()
         
         if not manager:
             raise HTTPException(status_code=404, detail="Manager not found")
@@ -853,7 +1101,7 @@ async def create_sub_admin(
     else:
         # Try to get as an employee
         emp_result = await db.execute(select(Employee).filter(Employee.id == sub_admin_data.employee_id))
-        employee = emp_result.scalar_one_or_none()
+        employee = emp_result.scalars().first()
         
         if not employee:
             raise HTTPException(status_code=404, detail="Employee not found")
@@ -862,7 +1110,7 @@ async def create_sub_admin(
             raise HTTPException(status_code=400, detail="Employee does not have a user account")
         
         user_result = await db.execute(select(User).filter(User.id == employee.user_id))
-        emp_user = user_result.scalar_one_or_none()
+        emp_user = user_result.scalars().first()
         
         if not emp_user:
             raise HTTPException(status_code=400, detail="Employee user account not found")
@@ -871,7 +1119,7 @@ async def create_sub_admin(
     
     # Check if already a sub-admin
     existing = await db.execute(select(SubAdmin).filter(SubAdmin.user_id == emp_user.id))
-    if existing.scalar_one_or_none():
+    if existing.scalars().first():
         raise HTTPException(status_code=400, detail="This user is already a sub-admin")
     
     # Update user type to SUB_ADMIN
@@ -900,7 +1148,7 @@ async def create_sub_admin(
             selectinload(SubAdmin.manager).selectinload(Manager.department)
         )
     )
-    sub_admin = result.scalar_one_or_none()
+    sub_admin = result.scalars().first()
     
     # Log the action before commit
     try:
@@ -961,7 +1209,7 @@ async def delete_sub_admin(
     """Delete/deactivate a sub-admin (employee or manager)"""
     
     result = await db.execute(select(SubAdmin).filter(SubAdmin.id == sub_admin_id))
-    sub_admin = result.scalar_one_or_none()
+    sub_admin = result.scalars().first()
     
     if not sub_admin:
         raise HTTPException(status_code=404, detail="Sub-admin not found")
@@ -977,7 +1225,7 @@ async def delete_sub_admin(
             .filter(Employee.id == sub_admin.employee_id)
             .options(selectinload(Employee.department))
         )
-        employee = emp_result.scalar_one_or_none()
+        employee = emp_result.scalars().first()
         if employee:
             display_name = f"{employee.first_name} {employee.last_name}"
     elif sub_admin.manager_id:
@@ -986,13 +1234,13 @@ async def delete_sub_admin(
             .filter(Manager.id == sub_admin.manager_id)
             .options(selectinload(Manager.user), selectinload(Manager.department))
         )
-        manager = mgr_result.scalar_one_or_none()
+        manager = mgr_result.scalars().first()
         if manager and manager.user:
             display_name = manager.user.full_name
     
     # Get the user
     user_result = await db.execute(select(User).filter(User.id == sub_admin.user_id))
-    emp_user = user_result.scalar_one_or_none()
+    emp_user = user_result.scalars().first()
     
     # Deactivate sub-admin
     sub_admin.is_active = False
@@ -1070,7 +1318,7 @@ async def create_department(
         result = await db.execute(
             select(Department).order_by(Department.id.desc()).limit(1)
         )
-        last_dept = result.scalar_one_or_none()
+        last_dept = result.scalars().first()
         next_id = 1
         if last_dept and last_dept.dept_id.isdigit():
             next_id = int(last_dept.dept_id) + 1
@@ -1116,7 +1364,7 @@ async def update_department(
     request: Request = None
 ):
     result = await db.execute(select(Department).filter(Department.id == department_id))
-    department = result.scalar_one_or_none()
+    department = result.scalars().first()
     
     if not department:
         raise HTTPException(status_code=404, detail="Department not found")
@@ -1173,7 +1421,7 @@ async def get_department_details(
     dept_result = await db.execute(
         select(Department).filter(Department.id == department_id)
     )
-    department = dept_result.scalar_one_or_none()
+    department = dept_result.scalars().first()
     
     if not department:
         raise HTTPException(status_code=404, detail="Department not found")
@@ -1182,13 +1430,13 @@ async def get_department_details(
     mgr_result = await db.execute(
         select(Manager).filter(Manager.department_id == department_id)
     )
-    manager = mgr_result.scalar_one_or_none()
+    manager = mgr_result.scalars().first()
     manager_info = None
     if manager:
         user_result = await db.execute(
             select(User).filter(User.id == manager.user_id)
         )
-        manager_user = user_result.scalar_one_or_none()
+        manager_user = user_result.scalars().first()
         if manager_user:
             manager_info = {
                 "id": manager.id,
@@ -1219,7 +1467,7 @@ async def get_department_details(
                 CheckInOut.employee_id == emp.id
             ).order_by(CheckInOut.date.desc(), CheckInOut.check_in_time.desc()).limit(1)
         )
-        latest_checkin = checkin_result.scalar_one_or_none()
+        latest_checkin = checkin_result.scalars().first()
         
         # Get today's schedule for assigned shift time
         schedule_result = await db.execute(
@@ -1228,7 +1476,7 @@ async def get_department_details(
                 Schedule.date == today
             )
         )
-        today_schedule = schedule_result.scalar_one_or_none()
+        today_schedule = schedule_result.scalars().first()
         
         # Calculate total hours assigned
         total_hrs_assigned = None
@@ -1269,7 +1517,7 @@ async def delete_department(
 ):
     """Delete a department and all related data"""
     result = await db.execute(select(Department).filter(Department.id == department_id))
-    department = result.scalar_one_or_none()
+    department = result.scalars().first()
     
     if not department:
         raise HTTPException(status_code=404, detail="Department not found")
@@ -1323,7 +1571,7 @@ async def search_departments(
                 Department.is_active == True
             )
         )
-        department = result.scalar_one_or_none()
+        department = result.scalars().first()
         if department:
             return {
                 "id": department.id,
@@ -1341,7 +1589,7 @@ async def search_departments(
             Department.is_active == True
         )
     )
-    department = result.scalar_one_or_none()
+    department = result.scalars().first()
     if department:
         return {
             "id": department.id,
@@ -1384,12 +1632,12 @@ async def create_manager(
     """Create a manager and link to a department. If force_reassign=true, will replace existing manager."""
     # Check if user exists
     result = await db.execute(select(User).filter(User.id == mgr_data.user_id))
-    if not result.scalar_one_or_none():
+    if not result.scalars().first():
         raise HTTPException(status_code=404, detail="User not found")
     
     # Check if department exists
     result = await db.execute(select(Department).filter(Department.id == mgr_data.department_id))
-    if not result.scalar_one_or_none():
+    if not result.scalars().first():
         raise HTTPException(status_code=404, detail="Department not found")
     
     # Check if another manager is already assigned to this department
@@ -1401,7 +1649,7 @@ async def create_manager(
             )
         ).options(selectinload(Manager.user))
     )
-    existing_manager = existing_result.scalar_one_or_none()
+    existing_manager = existing_result.scalars().first()
     
     if existing_manager:
         if not force_reassign:
@@ -1543,7 +1791,7 @@ async def get_current_manager(
     result = await db.execute(
         select(Manager).filter(Manager.user_id == current_user.id)
     )
-    manager = result.scalar_one_or_none()
+    manager = result.scalars().first()
     
     if not manager:
         raise HTTPException(status_code=404, detail="Manager not found")
@@ -1568,7 +1816,7 @@ async def update_manager(
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(Manager).filter(Manager.id == manager_id))
-    manager = result.scalar_one_or_none()
+    manager = result.scalars().first()
     
     if not manager:
         raise HTTPException(status_code=404, detail="Manager not found")
@@ -1584,7 +1832,7 @@ async def update_manager(
                 )
             )
         )
-        existing_manager = existing_result.scalar_one_or_none()
+        existing_manager = existing_result.scalars().first()
         if existing_manager:
             raise HTTPException(
                 status_code=409, 
@@ -1611,7 +1859,7 @@ async def reassign_manager(
 ):
     """Reassign a manager to a department, removing any existing manager from that department"""
     result = await db.execute(select(Manager).filter(Manager.id == manager_id))
-    manager = result.scalar_one_or_none()
+    manager = result.scalars().first()
     
     if not manager:
         raise HTTPException(status_code=404, detail="Manager not found")
@@ -1627,16 +1875,15 @@ async def reassign_manager(
                 )
             )
         )
-        existing_manager = existing_result.scalar_one_or_none()
+        existing_manager = existing_result.scalars().first()
         if existing_manager:
             existing_manager.department_id = None
             existing_manager.updated_at = datetime.utcnow()
             db.add(existing_manager)  # Ensure the change is tracked
     
     manager.department_id = mgr_data.department_id
-    manager = mgr_data
-    manager = mgr_data
     manager.updated_at = datetime.utcnow()
+    db.add(manager)
     
     await db.commit()
     await db.refresh(manager)
@@ -1651,7 +1898,7 @@ async def delete_manager(
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(Manager).filter(Manager.id == manager_id))
-    manager = result.scalar_one_or_none()
+    manager = result.scalars().first()
     
     if not manager:
         raise HTTPException(status_code=404, detail="Manager not found")
@@ -1673,14 +1920,14 @@ async def create_employee(
     # Managers can only create in their department
     # Get the manager's department from Manager table
     result = await db.execute(select(Manager).filter(Manager.user_id == current_user.id))
-    manager_record = result.scalar_one_or_none()
+    manager_record = result.scalars().first()
     
     if manager_record and emp_data.department_id != manager_record.department_id:
         raise HTTPException(status_code=403, detail="Can only create employees in your department")
     
-    # Check if employee with this email already exists
-    existing = await db.execute(select(Employee).filter(Employee.email == emp_data.email))
-    if existing.scalar_one_or_none():
+    # Check if employee with this email already exists (only active employees)
+    existing = await db.execute(select(Employee).filter(and_(Employee.email == emp_data.email, Employee.is_active == True)))
+    if existing.scalars().first():
         raise HTTPException(status_code=400, detail=f"Employee with email {emp_data.email} already exists")
 
     # Generate numeric employee ID by extracting numbers from existing IDs
@@ -1710,10 +1957,10 @@ async def create_employee(
     user_id = None
     # If password provided, create a user account
     if hasattr(emp_data, 'password') and emp_data.password:
-        # Check if username already exists (use email as username)
+        # Check if username already exists (use email as username) - only check active users
         username = emp_data.email.split('@')[0]  # Use part before @ as username
-        result = await db.execute(select(User).filter(User.username == username))
-        if result.scalar_one_or_none():
+        result = await db.execute(select(User).filter(and_(User.username == username, User.is_active == True)))
+        if result.scalars().first():
             raise HTTPException(status_code=400, detail=f"Username {username} already exists")
         
         user = User(
@@ -1782,12 +2029,15 @@ async def create_employee(
 async def list_employees(
     current_user: User = Depends(get_current_active_user),
     show_inactive: bool = False,  # Query parameter to show inactive employees
+    department_id: int = None,  # Optional department filter for admins
     db: AsyncSession = Depends(get_db)
 ):
     filters = []
 
     if current_user.user_type == UserType.ADMIN or current_user.user_type == UserType.SUB_ADMIN:
-        # Admin and Sub-Admin see all employees
+        # Admin and Sub-Admin see all employees, or filtered by department if provided
+        if department_id:
+            filters.append(Employee.department_id == department_id)
         if not show_inactive:
             filters.append(Employee.is_active == True)
         query = select(Employee).options(selectinload(Employee.department))
@@ -1797,7 +2047,7 @@ async def list_employees(
     elif current_user.user_type == UserType.MANAGER:
         # Get manager's department from Manager table
         manager_result = await db.execute(select(Manager).filter(Manager.user_id == current_user.id))
-        manager = manager_result.scalar_one_or_none()
+        manager = manager_result.scalars().first()
 
         if manager:
             filters.append(Employee.department_id == manager.department_id)
@@ -1832,7 +2082,7 @@ async def update_employee(
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(Employee).filter(Employee.id == employee_id))
-    employee = result.scalar_one_or_none()
+    employee = result.scalars().first()
     
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -1840,7 +2090,7 @@ async def update_employee(
     if current_user.user_type == UserType.MANAGER:
         # Get manager's department from Manager table
         manager_result = await db.execute(select(Manager).filter(Manager.user_id == current_user.id))
-        manager = manager_result.scalar_one_or_none()
+        manager = manager_result.scalars().first()
         
         if not manager or employee.department_id != manager.department_id:
             raise HTTPException(status_code=403, detail="Can only edit employees in your department")
@@ -1855,7 +2105,7 @@ async def update_employee(
         # Update user password if employee has a user account
         if employee.user_id:
             result = await db.execute(select(User).filter(User.id == employee.user_id))
-            user = result.scalar_one_or_none()
+            user = result.scalars().first()
             if user:
                 user.hashed_password = get_password_hash(emp_data.password)
                 # Ensure user is in the session
@@ -1864,7 +2114,7 @@ async def update_employee(
             # If no user account exists, create one
             username = emp_data.email.split('@')[0]
             result = await db.execute(select(User).filter(User.username == username))
-            if not result.scalar_one_or_none():
+            if not result.scalars().first():
                 user = User(
                     username=username,
                     email=emp_data.email,
@@ -1912,7 +2162,7 @@ async def delete_employee(
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(Employee).filter(Employee.id == employee_id))
-    employee = result.scalar_one_or_none()
+    employee = result.scalars().first()
 
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -1926,7 +2176,7 @@ async def delete_employee(
     user = None
     if employee.user_id:
         user_result = await db.execute(select(User).filter(User.id == employee.user_id))
-        user = user_result.scalar_one_or_none()
+        user = user_result.scalars().first()
 
     if hard_delete:
         # Permanent deletion from database - delete both employee and user
@@ -1934,6 +2184,20 @@ async def delete_employee(
             await db.delete(user)
         await db.delete(employee)
         await db.commit()
+        
+        # Log the action
+        try:
+            await log_action(
+                db=db,
+                user_id=current_user.id,
+                action="DELETE_EMPLOYEE_HARD",
+                entity_type="EMPLOYEE",
+                entity_id=employee.id,
+                description=f"Permanently deleted employee: {employee.first_name} {employee.last_name} (ID: {employee.employee_id})",
+            )
+        except Exception as e:
+            print(f"Failed to log employee hard deletion: {e}")
+        
         return {"message": "Employee and associated user permanently deleted"}
     else:
         # Soft delete - mark both as inactive
@@ -1941,6 +2205,21 @@ async def delete_employee(
         if user:
             user.is_active = False
         await db.commit()
+        
+        # Log the action
+        try:
+            await log_action(
+                db=db,
+                user_id=current_user.id,
+                action="DELETE_EMPLOYEE",
+                entity_type="EMPLOYEE",
+                entity_id=employee.id,
+                description=f"Deactivated employee: {employee.first_name} {employee.last_name} (ID: {employee.employee_id})",
+                new_values={"is_active": False},
+            )
+        except Exception as e:
+            print(f"Failed to log employee deletion: {e}")
+        
         return {"message": "Employee deleted successfully"}
 
 
@@ -1963,12 +2242,27 @@ async def create_role(
     await db.commit()
     await db.refresh(role)
     
+    # Log the action
+    try:
+        await log_action(
+            db=db,
+            user_id=current_user.id,
+            action="CREATE_ROLE",
+            entity_type="ROLE",
+            entity_id=role.id,
+            description=f"Created role: {role.name}",
+            new_values=role_data.dict(),
+        )
+    except Exception as e:
+        print(f"Failed to log role creation: {e}")
+    
     return role
 
 
 @app.get("/roles", response_model=List[RoleDetailResponse])
 async def list_roles(
     current_user: User = Depends(get_current_active_user),
+    department_id: int = None,  # Optional department filter for admins
     db: AsyncSession = Depends(get_db)
 ):
     """List all roles with their shifts (eager loaded)"""
@@ -1977,8 +2271,12 @@ async def list_roles(
         with_loader_criteria(Shift, Shift.is_active == True)
     )
 
-    if current_user.user_type == UserType.ADMIN:
-        stmt = stmt.filter(Role.is_active == True)
+    if current_user.user_type == UserType.ADMIN or current_user.user_type == UserType.SUB_ADMIN:
+        # Admins can see all active roles, or filter by department if provided
+        if department_id:
+            stmt = stmt.filter(Role.department_id == department_id, Role.is_active == True)
+        else:
+            stmt = stmt.filter(Role.is_active == True)
     else:
         # For managers, use get_manager_department helper
         manager_dept = await get_manager_department(current_user, db)
@@ -2008,7 +2306,7 @@ async def get_role_detail(
         stmt = stmt.filter(Role.department_id == manager_dept)
 
     result = await db.execute(stmt)
-    role = result.scalar_one_or_none()
+    role = result.scalars().first()
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
     return role
@@ -2025,7 +2323,7 @@ async def update_role(
     result = await db.execute(
         select(Role).filter(Role.id == role_id)
     )
-    role = result.scalar_one_or_none()
+    role = result.scalars().first()
 
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
@@ -2057,7 +2355,7 @@ async def delete_role(
     result = await db.execute(
         select(Role).filter(Role.id == role_id)
     )
-    role = result.scalar_one_or_none()
+    role = result.scalars().first()
     
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
@@ -2089,12 +2387,12 @@ async def get_user_department(user: User, db: AsyncSession) -> Optional[int]:
     """Resolve the department for a manager or employee user"""
     if user.user_type == UserType.MANAGER:
         result = await db.execute(select(Manager).filter(Manager.user_id == user.id))
-        manager = result.scalar_one_or_none()
+        manager = result.scalars().first()
         return manager.department_id if manager else None
     
     if user.user_type == UserType.EMPLOYEE:
         result = await db.execute(select(Employee).filter(Employee.user_id == user.id))
-        employee = result.scalar_one_or_none()
+        employee = result.scalars().first()
         return employee.department_id if employee else None
     
     return None
@@ -2123,7 +2421,7 @@ async def check_in(
         result = await db.execute(
             select(Employee).filter(Employee.user_id == current_user.id)
         )
-        employee = result.scalar_one_or_none()
+        employee = result.scalars().first()
         
         if not employee:
             error_msg = f"Employee record not found for user_id: {current_user.id}"
@@ -2141,7 +2439,7 @@ async def check_in(
                 LeaveRequest.status == LeaveStatus.APPROVED
             )
         )
-        leave_request = leave_result.scalar_one_or_none()
+        leave_request = leave_result.scalars().first()
         if leave_request:
             error_msg = f"You are on approved {leave_request.leave_type} today. You cannot check in."
             print(f"[CHECK-IN ERROR] Leave Request block - {error_msg}")
@@ -2155,7 +2453,7 @@ async def check_in(
                 Schedule.status.in_(['leave', 'comp_off_taken', 'comp_off_earned', 'leave_half_morning', 'leave_half_afternoon'])
             )
         )
-        if schedule_result.scalar_one_or_none():
+        if schedule_result.scalars().first():
             error_msg = "You are on leave/comp-off today. You cannot check in."
             print(f"[CHECK-IN ERROR] Schedule block - {error_msg}")
             raise HTTPException(status_code=400, detail=error_msg)
@@ -2168,7 +2466,7 @@ async def check_in(
                 CheckInOut.check_out_time == None
             )
         )
-        if result.scalar_one_or_none():
+        if result.scalars().first():
             error_msg = "Already checked in today. Please check out first."
             print(f"[CHECK-IN ERROR] {error_msg}")
             raise HTTPException(status_code=400, detail=error_msg)
@@ -2180,7 +2478,7 @@ async def check_in(
                 Schedule.date == today
             )
         )
-        schedule = result.scalar_one_or_none()
+        schedule = result.scalars().first()
         
         if not schedule:
             error_msg = f"No scheduled shift for today. Please contact your manager. (Employee: {employee.id}, Date: {today})"
@@ -2233,7 +2531,7 @@ async def check_in(
                     Attendance.date == today
                 )
             )
-            attendance = att_result.scalar_one_or_none()
+            attendance = att_result.scalars().first()
             
             if not attendance:
                 # Create new attendance record with check-in time
@@ -2303,7 +2601,7 @@ async def check_out(
         result = await db.execute(
             select(Employee).filter(Employee.user_id == current_user.id)
         )
-        employee = result.scalar_one_or_none()
+        employee = result.scalars().first()
         
         if not employee:
             error_msg = f"Employee record not found for user_id: {current_user.id}"
@@ -2321,7 +2619,7 @@ async def check_out(
                 CheckInOut.check_out_time == None
             )
         )
-        check_in = result.scalar_one_or_none()
+        check_in = result.scalars().first()
 
         if not check_in:
             raise HTTPException(status_code=400, detail="No active check-in found")
@@ -2341,7 +2639,7 @@ async def check_out(
                     Attendance.date == today
                 )
             )
-            attendance = att_result.scalar_one_or_none()
+            attendance = att_result.scalars().first()
             
             if not attendance:
                 # Create new attendance record
@@ -2394,7 +2692,7 @@ async def check_out(
                         OvertimeRequest.status == OvertimeStatus.APPROVED
                     )
                 )
-                overtime_request = approved_ot_result.scalar_one_or_none()
+                overtime_request = approved_ot_result.scalars().first()
                 
                 if overtime_request and check_in.schedule:
                     # Parse shift end time
@@ -2489,7 +2787,7 @@ async def record_attendance(
         result = await db.execute(
             select(Employee).filter(Employee.user_id == current_user.id)
         )
-        employee = result.scalar_one_or_none()
+        employee = result.scalars().first()
         
         if not employee:
             raise HTTPException(status_code=400, detail="Employee record not found")
@@ -2499,7 +2797,7 @@ async def record_attendance(
         schedule_result = await db.execute(
             select(Schedule).filter(Schedule.id == schedule_id)
         )
-        schedule = schedule_result.scalar_one_or_none()
+        schedule = schedule_result.scalars().first()
         
         if not schedule:
             raise HTTPException(status_code=400, detail="Schedule not found")
@@ -2544,14 +2842,17 @@ async def get_attendance(
     start_date: date = None,
     end_date: date = None,
     employee_id: int = None,
+    department_id: int = None,  # Optional department filter for admins
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get attendance records with optional filters"""
     try:
+        from sqlalchemy.orm import joinedload
+        
         query = select(Attendance).options(
-            selectinload(Attendance.employee),
-            selectinload(Attendance.schedule)  # Load schedule but not the nested role yet
+            joinedload(Attendance.employee).joinedload(Employee.department),
+            joinedload(Attendance.schedule).joinedload(Schedule.role)
         )
 
         # Role-based filtering
@@ -2562,7 +2863,7 @@ async def get_attendance(
             emp_result = await db.execute(
                 select(Employee).filter(Employee.user_id == current_user.id)
             )
-            target_employee = emp_result.scalar_one_or_none()
+            target_employee = emp_result.scalars().first()
             if target_employee:
                 query = query.filter(Attendance.employee_id == target_employee.id)
             else:
@@ -2575,6 +2876,10 @@ async def get_attendance(
                 query = query.filter(Attendance.employee_id.in_(subquery))
             else:
                 return []
+        elif current_user.user_type in [UserType.ADMIN, UserType.SUB_ADMIN] and department_id:
+            # Filter by department if provided for admins
+            subquery = select(Employee.id).filter(Employee.department_id == department_id)
+            query = query.filter(Attendance.employee_id.in_(subquery))
 
         # Additional filters
         if employee_id and current_user.user_type != UserType.EMPLOYEE:
@@ -2608,20 +2913,33 @@ async def get_attendance(
 
 @app.get("/attendance/today")
 async def get_todays_attendance(
+    department_id: int = None,
     current_user: User = Depends(require_manager),
     db: AsyncSession = Depends(get_db)
 ):
     """Get today's attendance summary for manager"""
     today = date.today()
 
+    # Determine the department to use
+    if department_id:
+        # Admin/sub-admin accessing a specific department
+        if current_user.user_type in [UserType.ADMIN, UserType.SUB_ADMIN]:
+            pass
+        else:
+            # Manager must be accessing their own department
+            manager_dept = await get_manager_department(current_user, db)
+            if not manager_dept or manager_dept != department_id:
+                raise HTTPException(status_code=403, detail="Can only view attendance for your department")
+    else:
+        # No department_id provided, use manager's department
+        department_id = await get_manager_department(current_user, db)
+        if not department_id:
+            raise HTTPException(status_code=400, detail="Manager department not found")
+
     # Get all employees in department
-    manager_dept = await get_manager_department(current_user, db)
-    if not manager_dept:
-        raise HTTPException(status_code=400, detail="Manager department not found")
-    
     emp_result = await db.execute(
         select(Employee).filter(
-            Employee.department_id == manager_dept,
+            Employee.department_id == department_id,
             Employee.is_active == True
         )
     )
@@ -2630,7 +2948,7 @@ async def get_todays_attendance(
     # Get today's schedules
     sched_result = await db.execute(
         select(Schedule).filter(
-            Schedule.department_id == manager_dept,
+            Schedule.department_id == department_id,
             Schedule.date == today
         )
     )
@@ -2769,14 +3087,14 @@ async def export_monthly_attendance(
             manager_result = await db.execute(
                 select(Manager).filter(Manager.user_id == current_user.id, Manager.department_id == department_id)
             )
-            if not manager_result.scalar_one_or_none():
+            if not manager_result.scalars().first():
                 raise HTTPException(status_code=403, detail="You don't have permission to download reports for this department")
         elif current_user.user_type != UserType.ADMIN:
             raise HTTPException(status_code=403, detail="Only admins and managers can download attendance reports")
 
         # Get department
         dept_result = await db.execute(select(Department).filter(Department.id == department_id))
-        department = dept_result.scalar_one_or_none()
+        department = dept_result.scalars().first()
         if not department:
             raise HTTPException(status_code=404, detail="Department not found")
 
@@ -3146,14 +3464,14 @@ async def export_monthly_comprehensive_attendance(
             manager_result = await db.execute(
                 select(Manager).filter(Manager.user_id == current_user.id, Manager.department_id == department_id)
             )
-            if not manager_result.scalar_one_or_none():
+            if not manager_result.scalars().first():
                 raise HTTPException(status_code=403, detail="You don't have permission to download reports for this department")
         elif current_user.user_type != UserType.ADMIN:
             raise HTTPException(status_code=403, detail="Only admins and managers can download attendance reports")
 
         # Get department
         dept_result = await db.execute(select(Department).filter(Department.id == department_id))
-        department = dept_result.scalar_one_or_none()
+        department = dept_result.scalars().first()
         if not department:
             raise HTTPException(status_code=404, detail="Department not found")
 
@@ -3468,14 +3786,14 @@ async def export_weekly_attendance(
             manager_result = await db.execute(
                 select(Manager).filter(Manager.user_id == current_user.id, Manager.department_id == department_id)
             )
-            if not manager_result.scalar_one_or_none():
+            if not manager_result.scalars().first():
                 raise HTTPException(status_code=403, detail="You don't have permission to download reports for this department")
         elif current_user.user_type != UserType.ADMIN:
             raise HTTPException(status_code=403, detail="Only admins and managers can download attendance reports")
         
         # Get department
         dept_result = await db.execute(select(Department).filter(Department.id == department_id))
-        department = dept_result.scalar_one_or_none()
+        department = dept_result.scalars().first()
         if not department:
             raise HTTPException(status_code=404, detail="Department not found")
         
@@ -3803,7 +4121,7 @@ async def export_employee_monthly_attendance(
             emp_result = await db.execute(
                 select(Employee).filter(Employee.employee_id == employee_id)
             )
-            employee = emp_result.scalar_one_or_none()
+            employee = emp_result.scalars().first()
             if not employee:
                 raise HTTPException(status_code=404, detail=f"Employee with ID {employee_id} not found")
             
@@ -3812,7 +4130,7 @@ async def export_employee_monthly_attendance(
                 mgr_result = await db.execute(
                     select(Manager).filter(Manager.user_id == current_user.id)
                 )
-                manager = mgr_result.scalar_one_or_none()
+                manager = mgr_result.scalars().first()
                 if manager and employee.department_id != manager.department_id:
                     raise HTTPException(status_code=403, detail="Can only download reports for employees in your department")
         else:
@@ -3820,7 +4138,7 @@ async def export_employee_monthly_attendance(
             emp_result = await db.execute(
                 select(Employee).filter(Employee.user_id == current_user.id)
             )
-            employee = emp_result.scalar_one_or_none()
+            employee = emp_result.scalars().first()
             if not employee:
                 raise HTTPException(status_code=404, detail="Employee not found")
         
@@ -4261,13 +4579,13 @@ async def create_leave_request(
     if current_user.user_type == UserType.EMPLOYEE:
         # Find employee record linked to this user
         result = await db.execute(select(Employee).filter(Employee.user_id == current_user.id))
-        employee = result.scalar_one_or_none()
+        employee = result.scalars().first()
         if not employee or leave_data.employee_id != employee.id:
             raise HTTPException(status_code=403, detail="Can only request leave for yourself")
     
     # Get the employee to check paid leave limit
     emp_result = await db.execute(select(Employee).filter(Employee.id == leave_data.employee_id))
-    employee = emp_result.scalar_one_or_none()
+    employee = emp_result.scalars().first()
     
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -4338,7 +4656,7 @@ async def create_leave_request(
         manager_result = await db.execute(
             select(Manager).filter(Manager.department_id == employee.department_id)
         )
-        manager = manager_result.scalar_one_or_none()
+        manager = manager_result.scalars().first()
         
         if manager and manager.user_id:
             notification_title = f"📝 Leave Request from {employee.first_name} {employee.last_name}"
@@ -4359,6 +4677,7 @@ async def create_leave_request(
 @app.get("/leave-requests", response_model=List[LeaveRequestResponse])
 async def list_leave_requests(
     current_user: User = Depends(get_current_active_user),
+    department_id: int = None,  # Optional department filter for admins
     db: AsyncSession = Depends(get_db)
 ):
     if current_user.user_type == UserType.EMPLOYEE:
@@ -4366,7 +4685,7 @@ async def list_leave_requests(
         emp_result = await db.execute(
             select(Employee).filter(Employee.user_id == current_user.id)
         )
-        employee = emp_result.scalar_one_or_none()
+        employee = emp_result.scalars().first()
         if not employee:
             return []
 
@@ -4390,10 +4709,11 @@ async def list_leave_requests(
             .order_by(LeaveRequest.start_date)
         )
     else:  # Admin or Sub-Admin
+        query = select(LeaveRequest).options(selectinload(LeaveRequest.employee).selectinload(Employee.department))
+        if department_id:
+            query = query.join(Employee).filter(Employee.department_id == department_id)
         result = await db.execute(
-            select(LeaveRequest)
-            .options(selectinload(LeaveRequest.employee).selectinload(Employee.department))
-            .order_by(LeaveRequest.start_date)
+            query.order_by(LeaveRequest.start_date)
         )
 
     return result.scalars().all()
@@ -4421,6 +4741,37 @@ async def get_manager_leave_requests(
     return result.scalars().all()
 
 
+@app.delete("/leave-requests/{leave_id}")
+async def cancel_leave_request(
+    leave_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Allow an employee to withdraw a pending leave request before review"""
+    result = await db.execute(select(LeaveRequest).filter(LeaveRequest.id == leave_id))
+    leave_request = result.scalar_one_or_none()
+
+    if not leave_request:
+        raise HTTPException(status_code=404, detail="Leave request not found")
+
+    if current_user.user_type != UserType.EMPLOYEE:
+        raise HTTPException(status_code=403, detail="Only employees can cancel their leave requests")
+
+    emp_result = await db.execute(select(Employee).filter(Employee.user_id == current_user.id))
+    employee = emp_result.scalar_one_or_none()
+
+    if not employee or leave_request.employee_id != employee.id:
+        raise HTTPException(status_code=403, detail="Cannot cancel leave for another employee")
+
+    if leave_request.status != LeaveStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Only pending leave requests can be cancelled")
+
+    await db.delete(leave_request)
+    await db.commit()
+
+    return {"message": "Leave request cancelled"}
+
+
 @app.get("/leave-statistics")
 async def get_leave_statistics(
     current_user: User = Depends(get_current_active_user),
@@ -4432,7 +4783,7 @@ async def get_leave_statistics(
         emp_result = await db.execute(
             select(Employee).filter(Employee.user_id == current_user.id)
         )
-        employee = emp_result.scalar_one_or_none()
+        employee = emp_result.scalars().first()
         if not employee:
             raise HTTPException(status_code=404, detail="Employee not found")
         
@@ -4471,7 +4822,7 @@ async def get_leave_statistics(
         comp_off_result = await db.execute(
             select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
         )
-        comp_off_tracking = comp_off_result.scalar_one_or_none()
+        comp_off_tracking = comp_off_result.scalars().first()
         comp_off_available = 0
         if comp_off_tracking:
             comp_off_available = comp_off_tracking.available_days
@@ -4502,7 +4853,7 @@ async def get_employee_leave_statistics(
     
     # Get the manager record for current user
     manager_result = await db.execute(select(Manager).filter(Manager.user_id == current_user.id))
-    manager = manager_result.scalar_one_or_none()
+    manager = manager_result.scalars().first()
     
     if not manager:
         raise HTTPException(status_code=403, detail="User is not a manager")
@@ -4511,7 +4862,7 @@ async def get_employee_leave_statistics(
     emp_result = await db.execute(
         select(Employee).filter(Employee.employee_id == employee_id, Employee.department_id == manager.department_id)
     )
-    employee = emp_result.scalar_one_or_none()
+    employee = emp_result.scalars().first()
     
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found in your department")
@@ -4555,7 +4906,7 @@ async def get_employee_leave_statistics(
     comp_off_result = await db.execute(
         select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
     )
-    comp_off_tracking = comp_off_result.scalar_one_or_none()
+    comp_off_tracking = comp_off_result.scalars().first()
     comp_off_available = 0
     comp_off_earned = 0
     comp_off_used = 0
@@ -4635,7 +4986,7 @@ async def export_leave_compoff_report(
     
     # Get the manager record for current user
     manager_result = await db.execute(select(Manager).filter(Manager.user_id == current_user.id))
-    manager = manager_result.scalar_one_or_none()
+    manager = manager_result.scalars().first()
     
     if not manager:
         raise HTTPException(status_code=403, detail="User is not a manager")
@@ -4644,7 +4995,7 @@ async def export_leave_compoff_report(
     emp_result = await db.execute(
         select(Employee).filter(Employee.employee_id == employee_id, Employee.department_id == manager.department_id)
     )
-    employee = emp_result.scalar_one_or_none()
+    employee = emp_result.scalars().first()
     
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found in your department")
@@ -4661,7 +5012,7 @@ async def export_leave_compoff_report(
     comp_off_result = await db.execute(
         select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
     )
-    comp_off_tracking = comp_off_result.scalar_one_or_none()
+    comp_off_tracking = comp_off_result.scalars().first()
     
     compoff_details_result = await db.execute(
         select(CompOffDetail)
@@ -4998,14 +5349,14 @@ async def approve_leave(
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(LeaveRequest).filter(LeaveRequest.id == leave_id))
-    leave_request = result.scalar_one_or_none()
+    leave_request = result.scalars().first()
 
     if not leave_request:
         raise HTTPException(status_code=404, detail="Leave request not found")
 
     # Get the manager record for current user
     manager_result = await db.execute(select(Manager).filter(Manager.user_id == current_user.id))
-    manager = manager_result.scalar_one_or_none()
+    manager = manager_result.scalars().first()
 
     if not manager:
         raise HTTPException(status_code=403, detail="User is not a manager")
@@ -5019,7 +5370,7 @@ async def approve_leave(
     emp_result = await db.execute(
         select(Employee).filter(Employee.id == leave_request.employee_id)
     )
-    employee = emp_result.scalar_one_or_none()
+    employee = emp_result.scalars().first()
 
     # Create schedule entries for all leave types
     if employee:
@@ -5035,7 +5386,7 @@ async def approve_leave(
                         Schedule.status != 'cancelled'
                     )
                 )
-                if not existing.scalar_one_or_none():
+                if not existing.scalars().first():
                     # Determine status and times based on duration_type
                     if leave_request.duration_type and leave_request.duration_type.startswith('half_day'):
                         if leave_request.duration_type == 'half_day_morning':
@@ -5114,14 +5465,14 @@ async def approve_leave(
             )
             .limit(1)
         )
-        same_day_schedule = same_day_result.scalar_one_or_none()
+        same_day_schedule = same_day_result.scalars().first()
         
         if same_day_schedule and same_day_schedule.shift_id:
             # Use the shift from the same-day schedule
             shift_result = await db.execute(
                 select(Shift).filter(Shift.id == same_day_schedule.shift_id)
             )
-            shift = shift_result.scalar_one_or_none()
+            shift = shift_result.scalars().first()
             if shift:
                 shift_start_time = shift.start_time
                 shift_end_time = shift.end_time
@@ -5140,14 +5491,14 @@ async def approve_leave(
                 .order_by(Schedule.date.desc())
                 .limit(1)
             )
-            recent_schedule = recent_sched_result.scalar_one_or_none()
+            recent_schedule = recent_sched_result.scalars().first()
             
             if recent_schedule and recent_schedule.shift_id:
                 # Use the shift from the employee's recent schedule
                 shift_result = await db.execute(
                     select(Shift).filter(Shift.id == recent_schedule.shift_id)
                 )
-                shift = shift_result.scalar_one_or_none()
+                shift = shift_result.scalars().first()
                 if shift:
                     shift_start_time = shift.start_time
                     shift_end_time = shift.end_time
@@ -5166,13 +5517,13 @@ async def approve_leave(
                 .order_by(Schedule.date.asc())
                 .limit(1)
             )
-            next_schedule = next_sched_result.scalar_one_or_none()
+            next_schedule = next_sched_result.scalars().first()
             
             if next_schedule and next_schedule.shift_id:
                 shift_result = await db.execute(
                     select(Shift).filter(Shift.id == next_schedule.shift_id)
                 )
-                shift = shift_result.scalar_one_or_none()
+                shift = shift_result.scalars().first()
                 if shift:
                     shift_start_time = shift.start_time
                     shift_end_time = shift.end_time
@@ -5187,7 +5538,7 @@ async def approve_leave(
                 .order_by(Shift.priority.desc())
                 .limit(1)
             )
-            shift = shift_result.scalar_one_or_none()
+            shift = shift_result.scalars().first()
             
             if shift:
                 shift_start_time = shift.start_time
@@ -5216,14 +5567,14 @@ async def approve_leave(
                 )
                 .limit(1)
             )
-            same_day_schedule = same_day_result.scalar_one_or_none()
+            same_day_schedule = same_day_result.scalars().first()
             
             if same_day_schedule and same_day_schedule.shift_id:
                 # Use the shift from this day's schedule
                 shift_result = await db.execute(
                     select(Shift).filter(Shift.id == same_day_schedule.shift_id)
                 )
-                shift = shift_result.scalar_one_or_none()
+                shift = shift_result.scalars().first()
                 if shift:
                     day_shift_start_time = shift.start_time
                     day_shift_end_time = shift.end_time
@@ -5269,7 +5620,7 @@ async def approve_leave(
         tracking_result = await db.execute(
             select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
         )
-        tracking = tracking_result.scalar_one_or_none()
+        tracking = tracking_result.scalars().first()
 
         if tracking:
             tracking.used_days += comp_off_days
@@ -5295,7 +5646,7 @@ async def approve_leave(
     emp_user_result = await db.execute(
         select(User).filter(User.id == employee.user_id)
     )
-    emp_user = emp_user_result.scalar_one_or_none()
+    emp_user = emp_user_result.scalars().first()
     
     # Create notification for employee
     if emp_user:
@@ -5311,6 +5662,21 @@ async def approve_leave(
         )
 
     await db.commit()
+    
+    # Log the action
+    try:
+        emp_name = f"{employee.first_name} {employee.last_name}" if employee else "Unknown"
+        await log_action(
+            db=db,
+            user_id=current_user.id,
+            action="APPROVE_LEAVE",
+            entity_type="LEAVE_REQUEST",
+            entity_id=leave_request.id,
+            description=f"Approved {leave_request.leave_type} leave for {emp_name} from {leave_request.start_date} to {leave_request.end_date}",
+            new_values={"status": "approved", "reviewed_at": str(datetime.utcnow()), "review_notes": approval_data.review_notes},
+        )
+    except Exception as e:
+        print(f"Failed to log leave approval: {e}")
 
     return {"message": "Leave approved successfully"}
 
@@ -5323,14 +5689,18 @@ async def reject_leave(
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(LeaveRequest).filter(LeaveRequest.id == leave_id))
-    leave_request = result.scalar_one_or_none()
+    leave_request = result.scalars().first()
 
     if not leave_request:
         raise HTTPException(status_code=404, detail="Leave request not found")
+    
+    previous_status = leave_request.status
+    if previous_status == LeaveStatus.REJECTED:
+        raise HTTPException(status_code=400, detail="Leave request already rejected")
 
     # Get the manager record for current user
     manager_result = await db.execute(select(Manager).filter(Manager.user_id == current_user.id))
-    manager = manager_result.scalar_one_or_none()
+    manager = manager_result.scalars().first()
 
     if not manager:
         raise HTTPException(status_code=403, detail="User is not a manager")
@@ -5344,14 +5714,54 @@ async def reject_leave(
     emp_result = await db.execute(
         select(Employee).filter(Employee.id == leave_request.employee_id)
     )
-    employee = emp_result.scalar_one_or_none()
+    employee = emp_result.scalars().first()
+
+    # If this leave was previously approved, clean up schedules and comp-off tracking
+    if previous_status == LeaveStatus.APPROVED and employee:
+        # Remove leave/comp-off schedules that were generated during approval
+        await db.execute(
+            delete(Schedule).where(
+                Schedule.employee_id == employee.id,
+                Schedule.date >= leave_request.start_date,
+                Schedule.date <= leave_request.end_date,
+                Schedule.status.in_([
+                    'leave',
+                    'leave_half_morning',
+                    'leave_half_afternoon',
+                    'comp_off_taken'
+                ])
+            )
+        )
+
+        # Revert comp-off usage counts if needed
+        if leave_request.leave_type == 'comp_off':
+            tracking_result = await db.execute(
+                select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
+            )
+            tracking = tracking_result.scalar_one_or_none()
+
+            if tracking:
+                comp_off_days = (leave_request.end_date - leave_request.start_date).days + 1
+                tracking.used_days = max(0, tracking.used_days - comp_off_days)
+                tracking.available_days = max(0, tracking.earned_days - tracking.used_days)
+                tracking.updated_at = datetime.utcnow()
+
+                # Remove comp-off detail records tied to this leave window
+                await db.execute(
+                    delete(CompOffDetail).where(
+                        CompOffDetail.tracking_id == tracking.id,
+                        CompOffDetail.type == 'used',
+                        CompOffDetail.date >= datetime.combine(leave_request.start_date, datetime.min.time()),
+                        CompOffDetail.date <= datetime.combine(leave_request.end_date, datetime.max.time())
+                    )
+                )
 
     # Get employee user for notification
     if employee:
         emp_user_result = await db.execute(
             select(User).filter(User.id == employee.user_id)
         )
-        emp_user = emp_user_result.scalar_one_or_none()
+        emp_user = emp_user_result.scalars().first()
         
         # Create notification for employee
         if emp_user:
@@ -5369,6 +5779,21 @@ async def reject_leave(
             )
 
     await db.commit()
+    
+    # Log the action
+    try:
+        emp_name = f"{employee.first_name} {employee.last_name}" if employee else "Unknown"
+        await log_action(
+            db=db,
+            user_id=current_user.id,
+            action="REJECT_LEAVE",
+            entity_type="LEAVE_REQUEST",
+            entity_id=leave_request.id,
+            description=f"Rejected {leave_request.leave_type} leave for {emp_name} from {leave_request.start_date} to {leave_request.end_date}",
+            new_values={"status": "rejected", "reviewed_at": str(datetime.utcnow()), "review_notes": approval_data.review_notes},
+        )
+    except Exception as e:
+        print(f"Failed to log leave rejection: {e}")
 
     return {"message": "Leave rejected"}
 
@@ -5391,7 +5816,7 @@ async def create_comp_off_request(
         emp_result = await db.execute(
             select(Employee).filter(Employee.id == comp_off_data.employee_id)
         )
-        employee = emp_result.scalar_one_or_none()
+        employee = emp_result.scalars().first()
 
         if not employee:
             raise HTTPException(status_code=404, detail="Employee not found")
@@ -5400,7 +5825,7 @@ async def create_comp_off_request(
         manager_result = await db.execute(
             select(Manager).filter(Manager.user_id == current_user.id)
         )
-        manager = manager_result.scalar_one_or_none()
+        manager = manager_result.scalars().first()
 
         if not manager:
             raise HTTPException(status_code=404, detail="Manager record not found")
@@ -5412,7 +5837,7 @@ async def create_comp_off_request(
         emp_result = await db.execute(
             select(Employee).filter(Employee.user_id == current_user.id)
         )
-        employee = emp_result.scalar_one_or_none()
+        employee = emp_result.scalars().first()
 
         if not employee:
             raise HTTPException(status_code=404, detail="Employee record not found")
@@ -5432,7 +5857,7 @@ async def create_comp_off_request(
             Schedule.status.in_(['scheduled', 'completed'])  # Only actual work shifts block comp-off
         )
     )
-    existing_shift = shift_result.scalar_one_or_none()
+    existing_shift = shift_result.scalars().first()
 
     if existing_shift:
         print(f"[DEBUG] ✗ Comp-off blocked: {target_employee_id} has shift on {comp_off_data.comp_off_date} with status '{existing_shift.status}'", flush=True)
@@ -5455,8 +5880,13 @@ async def create_comp_off_request(
     db.add(comp_off_request)
     await db.commit()
     
-    # Reload with eager loading of employee relationship
-    await db.refresh(comp_off_request, attribute_names=['employee'])
+    # Reload with eager loading of employee + department to avoid lazy loading in response
+    refreshed_result = await db.execute(
+        select(CompOffRequest)
+        .options(selectinload(CompOffRequest.employee).selectinload(Employee.department))
+        .filter(CompOffRequest.id == comp_off_request.id)
+    )
+    comp_off_request = refreshed_result.scalar_one_or_none() or comp_off_request
     
     # Send notification to manager if employee created the request
     if current_user.user_type == UserType.EMPLOYEE and employee and employee.department_id:
@@ -5464,7 +5894,7 @@ async def create_comp_off_request(
         manager_result = await db.execute(
             select(Manager).filter(Manager.department_id == employee.department_id)
         )
-        manager = manager_result.scalar_one_or_none()
+        manager = manager_result.scalars().first()
         
         if manager and manager.user_id:
             notification_title = f"📝 Comp-Off Request from {employee.first_name} {employee.last_name}"
@@ -5485,52 +5915,72 @@ async def create_comp_off_request(
 @app.get("/comp-off-requests", response_model=List[CompOffRequestResponse])
 async def list_comp_off_requests(
     current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    department_id: int = None
 ):
     """List comp-off requests - employees see their own, managers see their department's"""
-    if current_user.user_type == UserType.EMPLOYEE:
-        # Employees see only their own requests
-        emp_result = await db.execute(
-            select(Employee).filter(Employee.user_id == current_user.id)
-        )
-        employee = emp_result.scalar_one_or_none()
+    try:
+        if current_user.user_type == UserType.EMPLOYEE:
+            # Employees see only their own requests
+            emp_result = await db.execute(
+                select(Employee).filter(Employee.user_id == current_user.id)
+            )
+            employee = emp_result.scalars().first()
 
-        if not employee:
-            return []
+            if not employee:
+                return []
 
-        result = await db.execute(
-            select(CompOffRequest)
-            .options(selectinload(CompOffRequest.employee))
-            .filter(CompOffRequest.employee_id == employee.id)
-            .order_by(CompOffRequest.comp_off_date.desc())
-        )
-    elif current_user.user_type == UserType.MANAGER:
-        # Managers see comp-off requests from employees in their department only
-        manager_result = await db.execute(
-            select(Manager).filter(Manager.user_id == current_user.id)
-        )
-        manager = manager_result.scalar_one_or_none()
+            result = await db.execute(
+                select(CompOffRequest)
+                .options(selectinload(CompOffRequest.employee).selectinload(Employee.department))
+                .filter(CompOffRequest.employee_id == employee.id)
+                .order_by(CompOffRequest.comp_off_date.desc())
+            )
+            
+        elif current_user.user_type == UserType.MANAGER:
+            # Managers see comp-off requests from employees in their department only
+            manager_result = await db.execute(
+                select(Manager).filter(Manager.user_id == current_user.id)
+            )
+            manager = manager_result.scalar_one_or_none()
 
-        if not manager:
-            return []
+            if not manager:
+                return []
 
-        # Get all comp-off requests from employees in this manager's department
-        result = await db.execute(
-            select(CompOffRequest)
-            .options(selectinload(CompOffRequest.employee))
-            .join(Employee, CompOffRequest.employee_id == Employee.id)
-            .filter(Employee.department_id == manager.department_id)
-            .order_by(CompOffRequest.comp_off_date.desc())
-        )
-    else:
-        # Admins see all requests
-        result = await db.execute(
-            select(CompOffRequest)
-            .options(selectinload(CompOffRequest.employee))
-            .order_by(CompOffRequest.comp_off_date.desc())
-        )
-
-    return result.scalars().all()
+            # Get all comp-off requests from employees in this manager's department
+            result = await db.execute(
+                select(CompOffRequest)
+                .options(selectinload(CompOffRequest.employee).selectinload(Employee.department))
+                .join(Employee, CompOffRequest.employee_id == Employee.id)
+                .filter(Employee.department_id == manager.department_id)
+                .order_by(CompOffRequest.comp_off_date.desc())
+            )
+            
+        else:
+            # Admins and sub-admins see all requests, or if department_id provided, just that department
+            if department_id:
+                result = await db.execute(
+                    select(CompOffRequest)
+                    .options(selectinload(CompOffRequest.employee).selectinload(Employee.department))
+                    .join(Employee, CompOffRequest.employee_id == Employee.id)
+                    .filter(Employee.department_id == department_id)
+                    .order_by(CompOffRequest.comp_off_date.desc())
+                )
+            else:
+                result = await db.execute(
+                    select(CompOffRequest)
+                    .options(selectinload(CompOffRequest.employee).selectinload(Employee.department))
+                    .order_by(CompOffRequest.comp_off_date.desc())
+                )
+        
+        comp_off_list = result.scalars().all()
+        return comp_off_list
+            
+    except Exception as e:
+        print(f"Error in list_comp_off_requests: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error loading comp-off requests: {str(e)}")
 
 
 @app.get("/comp-off-tracking", response_model=CompOffTrackingResponse)
@@ -5542,7 +5992,7 @@ async def get_comp_off_tracking(
     emp_result = await db.execute(
         select(Employee).filter(Employee.user_id == current_user.id)
     )
-    employee = emp_result.scalar_one_or_none()
+    employee = emp_result.scalars().first()
     
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -5551,7 +6001,7 @@ async def get_comp_off_tracking(
     tracking_result = await db.execute(
         select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
     )
-    tracking = tracking_result.scalar_one_or_none()
+    tracking = tracking_result.scalars().first()
     
     if not tracking:
         # Create new tracking record
@@ -5572,7 +6022,7 @@ async def get_comp_off_balance(
     emp_result = await db.execute(
         select(Employee).filter(Employee.user_id == current_user.id)
     )
-    employee = emp_result.scalar_one_or_none()
+    employee = emp_result.scalars().first()
     
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -5581,7 +6031,7 @@ async def get_comp_off_balance(
     tracking_result = await db.execute(
         select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
     )
-    tracking = tracking_result.scalar_one_or_none()
+    tracking = tracking_result.scalars().first()
     
     if not tracking:
         # Create new tracking record
@@ -5602,7 +6052,7 @@ async def get_monthly_comp_off_breakdown(
     emp_result = await db.execute(
         select(Employee).filter(Employee.user_id == current_user.id)
     )
-    employee = emp_result.scalar_one_or_none()
+    employee = emp_result.scalars().first()
     
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -5667,7 +6117,7 @@ async def validate_comp_off_available(
     emp_result = await db.execute(
         select(Employee).filter(Employee.user_id == current_user.id)
     )
-    employee = emp_result.scalar_one_or_none()
+    employee = emp_result.scalars().first()
     
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -5738,7 +6188,7 @@ async def approve_comp_off(
     result = await db.execute(
         select(CompOffRequest).filter(CompOffRequest.id == comp_off_id)
     )
-    comp_off = result.scalar_one_or_none()
+    comp_off = result.scalars().first()
     
     if not comp_off:
         raise HTTPException(status_code=404, detail="Comp-off request not found")
@@ -5747,7 +6197,7 @@ async def approve_comp_off(
     manager_result = await db.execute(
         select(Manager).filter(Manager.user_id == current_user.id)
     )
-    manager = manager_result.scalar_one_or_none()
+    manager = manager_result.scalars().first()
     
     if not manager:
         raise HTTPException(status_code=403, detail="User is not a manager")
@@ -5756,7 +6206,7 @@ async def approve_comp_off(
     employee_result = await db.execute(
         select(Employee).filter(Employee.id == comp_off.employee_id)
     )
-    employee = employee_result.scalar_one_or_none()
+    employee = employee_result.scalars().first()
     
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -5789,14 +6239,14 @@ async def approve_comp_off(
         )
         .limit(1)
     )
-    same_day_schedule = same_day_result.scalar_one_or_none()
+    same_day_schedule = same_day_result.scalars().first()
     
     if same_day_schedule and same_day_schedule.shift_id:
         # Use the shift from the same-day schedule (the one being replaced by comp-off)
         shift_result = await db.execute(
             select(Shift).filter(Shift.id == same_day_schedule.shift_id)
         )
-        shift = shift_result.scalar_one_or_none()
+        shift = shift_result.scalars().first()
         if shift:
             shift_start_time = shift.start_time
             shift_end_time = shift.end_time
@@ -5815,14 +6265,14 @@ async def approve_comp_off(
             .order_by(Schedule.date.desc())
             .limit(1)
         )
-        recent_schedule = recent_sched_result.scalar_one_or_none()
+        recent_schedule = recent_sched_result.scalars().first()
         
         if recent_schedule and recent_schedule.shift_id:
             # Use the shift from the employee's recent schedule
             shift_result = await db.execute(
                 select(Shift).filter(Shift.id == recent_schedule.shift_id)
             )
-            shift = shift_result.scalar_one_or_none()
+            shift = shift_result.scalars().first()
             if shift:
                 shift_start_time = shift.start_time
                 shift_end_time = shift.end_time
@@ -5841,13 +6291,13 @@ async def approve_comp_off(
             .order_by(Schedule.date.asc())
             .limit(1)
         )
-        next_schedule = next_sched_result.scalar_one_or_none()
+        next_schedule = next_sched_result.scalars().first()
         
         if next_schedule and next_schedule.shift_id:
             shift_result = await db.execute(
                 select(Shift).filter(Shift.id == next_schedule.shift_id)
             )
-            shift = shift_result.scalar_one_or_none()
+            shift = shift_result.scalars().first()
             if shift:
                 shift_start_time = shift.start_time
                 shift_end_time = shift.end_time
@@ -5862,7 +6312,7 @@ async def approve_comp_off(
             .order_by(Shift.priority.desc())
             .limit(1)
         )
-        shift = shift_result.scalar_one_or_none()
+        shift = shift_result.scalars().first()
         
         if shift:
             shift_start_time = shift.start_time
@@ -5887,20 +6337,31 @@ async def approve_comp_off(
         )
         .limit(1)
     )
-    same_day_schedule = same_day_result.scalar_one_or_none()
+    same_day_schedule = same_day_result.scalars().first()
     
     if same_day_schedule and same_day_schedule.shift_id:
         # Use the shift from this day's schedule (the one being replaced by comp-off)
         shift_result = await db.execute(
             select(Shift).filter(Shift.id == same_day_schedule.shift_id)
         )
-        shift = shift_result.scalar_one_or_none()
+        shift = shift_result.scalars().first()
         if shift:
             shift_start_time = shift.start_time
             shift_end_time = shift.end_time
             shift_id = shift.id
             print(f"[DEBUG] Found same-day shift: {shift.name} ({shift_start_time}-{shift_end_time})", flush=True)
     
+    # Clear schedule_id on existing comp-off requests for this employee/date to avoid FK conflicts
+    await db.execute(
+        update(CompOffRequest)
+        .where(
+            CompOffRequest.employee_id == employee.id,
+            CompOffRequest.comp_off_date == comp_off.comp_off_date,
+            CompOffRequest.schedule_id.isnot(None)
+        )
+        .values(schedule_id=None)
+    )
+
     # Delete any existing schedules for this date (to avoid duplicates)
     # This includes both regular schedules and any existing comp_off_taken schedules
     await db.execute(
@@ -5943,7 +6404,7 @@ async def approve_comp_off(
     tracking_result = await db.execute(
         select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
     )
-    tracking = tracking_result.scalar_one_or_none()
+    tracking = tracking_result.scalars().first()
     
     if tracking:
         tracking.earned_days += 1
@@ -5978,7 +6439,7 @@ async def approve_comp_off(
     emp_user_result = await db.execute(
         select(User).filter(User.id == employee.user_id)
     )
-    emp_user = emp_user_result.scalar_one_or_none()
+    emp_user = emp_user_result.scalars().first()
     
     # Create notification for employee
     if emp_user:
@@ -5996,6 +6457,21 @@ async def approve_comp_off(
     # Commit all changes
     await db.commit()
     
+    # Log the action
+    try:
+        emp_name = f"{employee.first_name} {employee.last_name}"
+        await log_action(
+            db=db,
+            user_id=current_user.id,
+            action="APPROVE_COMP_OFF",
+            entity_type="COMP_OFF_REQUEST",
+            entity_id=comp_off.id,
+            description=f"Approved comp-off usage for {emp_name} on {comp_off.comp_off_date}",
+            new_values={"status": "approved", "reviewed_at": str(datetime.utcnow()), "review_notes": approval_data.review_notes},
+        )
+    except Exception as e:
+        print(f"Failed to log comp-off approval: {e}")
+    
     return {"message": "Comp-off approved successfully"}
 
 
@@ -6010,16 +6486,18 @@ async def reject_comp_off(
     result = await db.execute(
         select(CompOffRequest).filter(CompOffRequest.id == comp_off_id)
     )
-    comp_off = result.scalar_one_or_none()
+    comp_off = result.scalars().first()
     
     if not comp_off:
         raise HTTPException(status_code=404, detail="Comp-off request not found")
+    
+    previous_status = comp_off.status
     
     # Get the manager record
     manager_result = await db.execute(
         select(Manager).filter(Manager.user_id == current_user.id)
     )
-    manager = manager_result.scalar_one_or_none()
+    manager = manager_result.scalars().first()
     
     if not manager:
         raise HTTPException(status_code=403, detail="User is not a manager")
@@ -6033,14 +6511,41 @@ async def reject_comp_off(
     emp_result = await db.execute(
         select(Employee).filter(Employee.id == comp_off.employee_id)
     )
-    employee = emp_result.scalar_one_or_none()
+    employee = emp_result.scalars().first()
+    
+    # If this was previously approved, clean up schedule and tracking
+    if previous_status == LeaveStatus.APPROVED and employee:
+        if comp_off.schedule_id:
+            # Clear FK before deleting schedule to avoid constraint errors
+            schedule_id = comp_off.schedule_id
+            comp_off.schedule_id = None
+            await db.execute(delete(Schedule).where(Schedule.id == schedule_id))
+
+        tracking_result = await db.execute(
+            select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
+        )
+        tracking = tracking_result.scalar_one_or_none()
+
+        if tracking:
+            tracking.earned_days = max(0, tracking.earned_days - 1)
+            tracking.available_days = max(0, tracking.earned_days - tracking.used_days)
+            tracking.updated_at = datetime.utcnow()
+
+            # Remove earned detail for this date
+            await db.execute(
+                delete(CompOffDetail).where(
+                    CompOffDetail.tracking_id == tracking.id,
+                    CompOffDetail.type == 'earned',
+                    CompOffDetail.date == comp_off.comp_off_date
+                )
+            )
     
     # Get employee user for notification
     if employee:
         emp_user_result = await db.execute(
             select(User).filter(User.id == employee.user_id)
         )
-        emp_user = emp_user_result.scalar_one_or_none()
+        emp_user = emp_user_result.scalars().first()
         
         # Create notification for employee
         if emp_user:
@@ -6059,9 +6564,53 @@ async def reject_comp_off(
     
     await db.commit()
     
+    # Log the action
+    try:
+        emp_name = f"{employee.first_name} {employee.last_name}" if employee else "Unknown"
+        await log_action(
+            db=db,
+            user_id=current_user.id,
+            action="REJECT_COMP_OFF",
+            entity_type="COMP_OFF_REQUEST",
+            entity_id=comp_off.id,
+            description=f"Rejected comp-off usage for {emp_name} on {comp_off.comp_off_date}",
+            new_values={"status": "rejected", "reviewed_at": str(datetime.utcnow()), "review_notes": approval_data.review_notes},
+        )
+    except Exception as e:
+        print(f"Failed to log comp-off rejection: {e}")
+    
     return {"message": "Comp-off rejected"}
 
+@app.delete("/comp-off-requests/{comp_off_id}")
+async def cancel_comp_off_request(
+    comp_off_id: int,
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db)
+):
+    """Employee cancels a pending comp-off request"""
+    result = await db.execute(
+        select(CompOffRequest).filter(CompOffRequest.id == comp_off_id)
+    )
+    comp_off = result.scalar_one_or_none()
 
+    if not comp_off:
+        raise HTTPException(status_code=404, detail="Comp-off request not found")
+
+    emp_result = await db.execute(
+        select(Employee).filter(Employee.user_id == current_user.id)
+    )
+    employee = emp_result.scalar_one_or_none()
+
+    if not employee or comp_off.employee_id != employee.id:
+        raise HTTPException(status_code=403, detail="Cannot cancel another employee's request")
+
+    if comp_off.status != LeaveStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Only pending comp-off requests can be cancelled")
+
+    await db.delete(comp_off)
+    await db.commit()
+
+    return {"message": "Comp-off request cancelled"}
 # Comp-Off Statistics Endpoints
 @app.get("/comp-off-statistics")
 async def get_comp_off_statistics(
@@ -6076,7 +6625,7 @@ async def get_comp_off_statistics(
     emp_result = await db.execute(
         select(Employee).filter(Employee.user_id == current_user.id)
     )
-    employee = emp_result.scalar_one_or_none()
+    employee = emp_result.scalars().first()
     
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -6085,7 +6634,7 @@ async def get_comp_off_statistics(
     tracking_result = await db.execute(
         select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
     )
-    tracking = tracking_result.scalar_one_or_none()
+    tracking = tracking_result.scalars().first()
     
     if not tracking:
         # Return default if no tracking exists
@@ -6120,7 +6669,7 @@ async def export_comp_off_report(
     emp_result = await db.execute(
         select(Employee).filter(Employee.user_id == current_user.id)
     )
-    employee = emp_result.scalar_one_or_none()
+    employee = emp_result.scalars().first()
     
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -6137,7 +6686,7 @@ async def export_comp_off_report(
     tracking_result = await db.execute(
         select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
     )
-    tracking = tracking_result.scalar_one_or_none()
+    tracking = tracking_result.scalars().first()
     
     # Create workbook
     wb = Workbook()
@@ -6293,7 +6842,7 @@ async def delete_message(
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(Message).filter(Message.id == message_id))
-    message = result.scalar_one_or_none()
+    message = result.scalars().first()
     
     if not message:
         raise HTTPException(status_code=404, detail="Message not found")
@@ -6318,7 +6867,7 @@ async def mark_message_as_read(
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(Message).filter(Message.id == message_id))
-    message = result.scalar_one_or_none()
+    message = result.scalars().first()
     
     if not message:
         raise HTTPException(status_code=404, detail="Message not found")
@@ -6390,7 +6939,7 @@ async def mark_notification_read(
             Notification.user_id == current_user.id
         )
     )
-    notification = result.scalar_one_or_none()
+    notification = result.scalars().first()
 
     if not notification:
         raise HTTPException(status_code=404, detail="Notification not found")
@@ -6434,7 +6983,7 @@ async def delete_notification(
             Notification.user_id == current_user.id
         )
     )
-    notification = result.scalar_one_or_none()
+    notification = result.scalars().first()
 
     if not notification:
         raise HTTPException(status_code=404, detail="Notification not found")
@@ -6606,6 +7155,7 @@ async def get_week_info(
 async def get_schedules(
     start_date: date = None,
     end_date: date = None,
+    department_id: int = None,  # Optional department filter for admins
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -6619,7 +7169,7 @@ async def get_schedules(
         emp_result = await db.execute(
             select(Employee).filter(Employee.user_id == current_user.id)
         )
-        employee = emp_result.scalar_one_or_none()
+        employee = emp_result.scalars().first()
         if employee:
             query = query.filter(Schedule.employee_id == employee.id)
         else:
@@ -6630,6 +7180,9 @@ async def get_schedules(
             query = query.filter(Schedule.department_id == manager_dept)
         else:
             return []
+    elif current_user.user_type in [UserType.ADMIN, UserType.SUB_ADMIN] and department_id:
+        # Filter by department if provided for admins
+        query = query.filter(Schedule.department_id == department_id)
 
     if start_date:
         query = query.filter(Schedule.date >= start_date)
@@ -6671,7 +7224,7 @@ async def get_schedules(
                     shift_result = await db.execute(
                         select(Shift).filter(Shift.id == sched.shift_id)
                     )
-                    shift = shift_result.scalar_one_or_none()
+                    shift = shift_result.scalars().first()
                     if shift and shift.start_time and shift.end_time:
                         sched.start_time = shift.start_time
                         sched.end_time = shift.end_time
@@ -6689,7 +7242,7 @@ async def create_schedule(
 ):
     # Get employee to verify department
     result = await db.execute(select(Employee).filter(Employee.id == schedule_data.employee_id))
-    employee = result.scalar_one_or_none()
+    employee = result.scalars().first()
 
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -6804,7 +7357,7 @@ async def create_schedule(
                 OvertimeTracking.month == month
             )
         )
-        tracking = tracking_result.scalar_one_or_none()
+        tracking = tracking_result.scalars().first()
         
         if not tracking:
             # Create default tracking
@@ -6865,6 +7418,20 @@ async def create_schedule(
 
     db.add(schedule)
     await db.commit()
+    
+    # Log the action
+    try:
+        await log_action(
+            db=db,
+            user_id=current_user.id,
+            action="CREATE_SCHEDULE",
+            entity_type="SCHEDULE",
+            entity_id=schedule.id,
+            description=f"Created schedule for {employee.first_name} {employee.last_name} on {schedule_data.date} ({schedule_data.start_time}-{schedule_data.end_time})",
+            new_values={"employee_id": schedule.employee_id, "date": str(schedule_data.date), "shift_hours": shift_hours},
+        )
+    except Exception as e:
+        print(f"Failed to log schedule creation: {e}")
 
     # Refresh with eager loading
     result = await db.execute(
@@ -6883,7 +7450,7 @@ async def update_schedule(
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(Schedule).filter(Schedule.id == schedule_id))
-    schedule = result.scalar_one_or_none()
+    schedule = result.scalars().first()
 
     if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
@@ -6932,7 +7499,7 @@ async def delete_schedule(
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(Schedule).filter(Schedule.id == schedule_id))
-    schedule = result.scalar_one_or_none()
+    schedule = result.scalars().first()
 
     if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
@@ -6953,6 +7520,7 @@ async def generate_schedules(
     start_date: date,
     end_date: date,
     regenerate: bool = False,
+    department_id: int = None,
     current_user: User = Depends(require_manager),
     db: AsyncSession = Depends(get_db)
 ):
@@ -6969,10 +7537,23 @@ async def generate_schedules(
     try:
         print(f"[DEBUG] Schedule generation started for dates {start_date} to {end_date}", flush=True)
 
-        # Get manager's department
-        department_id = await get_manager_department(current_user, db)
-        if not department_id:
-            raise HTTPException(status_code=400, detail="Manager department not found")
+        # Determine the department to use
+        if department_id:
+            # Admin/sub-admin accessing a specific department
+            # Verify they have access to this department
+            if current_user.user_type in [UserType.ADMIN, UserType.SUB_ADMIN]:
+                # Admins and sub-admins can access any department (or check their assigned departments)
+                pass
+            else:
+                # Manager must be accessing their own department
+                manager_dept = await get_manager_department(current_user, db)
+                if not manager_dept or manager_dept != department_id:
+                    raise HTTPException(status_code=403, detail="Can only generate schedules for your department")
+        else:
+            # No department_id provided, use manager's department
+            department_id = await get_manager_department(current_user, db)
+            if not department_id:
+                raise HTTPException(status_code=400, detail="Manager department not found")
 
         print(f"[DEBUG] Department ID: {department_id}", flush=True)
 
@@ -7302,7 +7883,7 @@ async def generate_schedules(
                                     .order_by(Schedule.date)
                                     .limit(1)
                                 )
-                                week_sched = week_shift.scalar_one_or_none()
+                                week_sched = week_shift.scalars().first()
                                 
                                 if week_sched and week_sched.start_time and week_sched.end_time:
                                     start_time = week_sched.start_time
@@ -7320,7 +7901,7 @@ async def generate_schedules(
                                         .order_by(Schedule.date.desc())
                                         .limit(1)
                                     )
-                                    same_day_sched = same_day.scalar_one_or_none()
+                                    same_day_sched = same_day.scalars().first()
                                     
                                     if same_day_sched and same_day_sched.start_time and same_day_sched.end_time:
                                         start_time = same_day_sched.start_time
@@ -7571,17 +8152,30 @@ async def generate_schedules(
 async def check_schedule_conflicts(
     start_date: date,
     end_date: date,
+    department_id: int = None,
     current_user: User = Depends(require_manager),
     db: AsyncSession = Depends(get_db)
 ):
     """Check for scheduling conflicts"""
-    manager_dept = await get_manager_department(current_user, db)
-    if not manager_dept:
-        raise HTTPException(status_code=400, detail="Manager department not found")
+    # Determine the department to use
+    if department_id:
+        # Admin/sub-admin accessing a specific department
+        if current_user.user_type in [UserType.ADMIN, UserType.SUB_ADMIN]:
+            pass
+        else:
+            # Manager must be accessing their own department
+            manager_dept = await get_manager_department(current_user, db)
+            if not manager_dept or manager_dept != department_id:
+                raise HTTPException(status_code=403, detail="Can only check conflicts for your department")
+    else:
+        # No department_id provided, use manager's department
+        department_id = await get_manager_department(current_user, db)
+        if not department_id:
+            raise HTTPException(status_code=400, detail="Manager department not found")
     
     result = await db.execute(
         select(Schedule).filter(
-            Schedule.department_id == manager_dept,
+            Schedule.department_id == department_id,
             Schedule.date >= start_date,
             Schedule.date <= end_date
         )
@@ -7640,7 +8234,7 @@ async def record_attendance(
             Attendance.in_time.isnot(None)
         )
     )
-    if result.scalar_one_or_none():
+    if result.scalars().first():
         raise HTTPException(status_code=400, detail="Already checked in today")
     
     # Get schedule for today
@@ -7660,7 +8254,7 @@ async def record_attendance(
             )
         )
     
-    schedule = result.scalar_one_or_none()
+    schedule = result.scalars().first()
     if not schedule:
         raise HTTPException(status_code=400, detail="No scheduled shift for today")
     
@@ -7699,7 +8293,17 @@ async def record_attendance(
     
     db.add(attendance)
     await db.commit()
-    await db.refresh(attendance)
+    
+    # Reload with eager loading for response serialization
+    result = await db.execute(
+        select(Attendance)
+        .options(
+            joinedload(Attendance.employee).joinedload(Employee.department),
+            joinedload(Attendance.schedule).joinedload(Schedule.role)
+        )
+        .filter(Attendance.id == attendance.id)
+    )
+    attendance = result.scalars().first()
     
     return attendance
 
@@ -7720,7 +8324,7 @@ async def record_checkout(
             Attendance.employee_id == current_user.employee_id
         )
     )
-    attendance = result.scalar_one_or_none()
+    attendance = result.scalars().first()
     
     if not attendance:
         raise HTTPException(status_code=404, detail="Attendance record not found")
@@ -7771,7 +8375,7 @@ async def record_checkout(
                             OvertimeRequest.status == OvertimeStatus.APPROVED
                         )
                     )
-                    overtime_request = approved_overtime_result.scalar_one_or_none()
+                    overtime_request = approved_overtime_result.scalars().first()
                     
                     if overtime_request:
                         # Use minimum of actual overtime and approved overtime
@@ -7789,7 +8393,17 @@ async def record_checkout(
     attendance.notes = checkout_data.notes or attendance.notes
     
     await db.commit()
-    await db.refresh(attendance)
+    
+    # Reload with eager loading for response serialization
+    result = await db.execute(
+        select(Attendance)
+        .options(
+            joinedload(Attendance.employee).joinedload(Employee.department),
+            joinedload(Attendance.schedule).joinedload(Schedule.role)
+        )
+        .filter(Attendance.id == attendance.id)
+    )
+    attendance = result.scalars().first()
     
     return attendance
 
@@ -7936,7 +8550,7 @@ async def create_unavailability(
     
     # Check employee belongs to manager's department
     result = await db.execute(select(Employee).filter(Employee.id == unavail.employee_id))
-    employee = result.scalar_one_or_none()
+    employee = result.scalars().first()
     
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -7977,14 +8591,14 @@ async def list_unavailability(
         # Manager sees unavailability for employees in their department
         if employee_id:
             result = await db.execute(select(Employee).filter(Employee.id == employee_id))
-            employee = result.scalar_one_or_none()
+            employee = result.scalars().first()
             if not employee or employee.department_id != manager_dept:
                 raise HTTPException(status_code=404, detail="Employee not found")
             query = query.filter(Unavailability.employee_id == employee_id)
     elif current_user.user_type == UserType.EMPLOYEE:
         # Employee sees only their own unavailability
         result = await db.execute(select(Employee).filter(Employee.user_id == current_user.id))
-        employee = result.scalar_one_or_none()
+        employee = result.scalars().first()
         if not employee:
             raise HTTPException(status_code=404, detail="Employee record not found")
         query = query.filter(Unavailability.employee_id == employee.id)
@@ -8011,14 +8625,14 @@ async def delete_unavailability(
     
     from app.models import Unavailability
     result = await db.execute(select(Unavailability).filter(Unavailability.id == unavailability_id))
-    unavailability = result.scalar_one_or_none()
+    unavailability = result.scalars().first()
     
     if not unavailability:
         raise HTTPException(status_code=404, detail="Unavailability record not found")
     
     # Verify employee belongs to manager's department
     result = await db.execute(select(Employee).filter(Employee.id == unavailability.employee_id))
-    employee = result.scalar_one_or_none()
+    employee = result.scalars().first()
     
     if current_user.user_type == UserType.MANAGER:
         manager_dept = await get_manager_department(current_user, db)
@@ -8045,7 +8659,7 @@ async def create_shift(
     
     # Verify role belongs to manager's department
     result = await db.execute(select(Role).filter(Role.id == shift.role_id))
-    role = result.scalar_one_or_none()
+    role = result.scalars().first()
     
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
@@ -8113,14 +8727,14 @@ async def update_shift(
 
     from app.models import Shift
     result = await db.execute(select(Shift).filter(Shift.id == shift_id))
-    shift = result.scalar_one_or_none()
+    shift = result.scalars().first()
 
     if not shift:
         raise HTTPException(status_code=404, detail="Shift not found")
 
     # Verify shift's role belongs to manager's department
     result = await db.execute(select(Role).filter(Role.id == shift.role_id))
-    role = result.scalar_one_or_none()
+    role = result.scalars().first()
 
     if current_user.user_type == UserType.MANAGER:
         manager_dept = await get_manager_department(current_user, db)
@@ -8149,14 +8763,14 @@ async def delete_shift(
         raise HTTPException(status_code=403, detail="Not authorized")
     
     result = await db.execute(select(Shift).filter(Shift.id == shift_id))
-    shift = result.scalar_one_or_none()
+    shift = result.scalars().first()
     
     if not shift:
         raise HTTPException(status_code=404, detail="Shift not found")
     
     # Verify shift's role belongs to manager's department
     result = await db.execute(select(Role).filter(Role.id == shift.role_id))
-    role = result.scalar_one_or_none()
+    role = result.scalars().first()
     
     if current_user.user_type == UserType.MANAGER:
         manager_dept = await get_manager_department(current_user, db)
@@ -8190,7 +8804,7 @@ async def create_overtime_request(
     emp_result = await db.execute(
         select(Employee).filter(Employee.user_id == current_user.id)
     )
-    employee = emp_result.scalar_one_or_none()
+    employee = emp_result.scalars().first()
     
     if not employee:
         raise HTTPException(status_code=400, detail="Employee record not found")
@@ -8216,7 +8830,7 @@ async def create_overtime_request(
         manager_result = await db.execute(
             select(Manager).filter(Manager.department_id == employee.department_id)
         )
-        manager = manager_result.scalar_one_or_none()
+        manager = manager_result.scalars().first()
         
         if manager and manager.user_id:
             notification_title = f"📝 Overtime Request from {employee.first_name} {employee.last_name}"
@@ -8237,6 +8851,7 @@ async def create_overtime_request(
 @app.get("/overtime-requests", response_model=List[OvertimeRequestResponse])
 async def list_overtime_requests(
     status: str = None,
+    department_id: int = None,  # Optional department filter for admins
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -8248,7 +8863,7 @@ async def list_overtime_requests(
         emp_result = await db.execute(
             select(Employee).filter(Employee.user_id == current_user.id)
         )
-        employee = emp_result.scalar_one_or_none()
+        employee = emp_result.scalars().first()
         if not employee:
             raise HTTPException(status_code=400, detail="Employee record not found")
         query = query.filter(OvertimeRequest.employee_id == employee.id)
@@ -8265,6 +8880,9 @@ async def list_overtime_requests(
         if not status:
             status = OvertimeStatus.PENDING
     else:  # ADMIN or SUB_ADMIN
+        # Join with Employee to filter by department if provided
+        if department_id:
+            query = query.join(Employee).filter(Employee.department_id == department_id)
         if not status:
             status = OvertimeStatus.PENDING
     
@@ -8286,7 +8904,7 @@ async def approve_overtime_request(
     result = await db.execute(
         select(OvertimeRequest).filter(OvertimeRequest.id == request_id)
     )
-    ot_request = result.scalar_one_or_none()
+    ot_request = result.scalars().first()
     
     if not ot_request:
         raise HTTPException(status_code=404, detail="Overtime request not found")
@@ -8295,7 +8913,7 @@ async def approve_overtime_request(
     emp_result = await db.execute(
         select(Employee).filter(Employee.id == ot_request.employee_id)
     )
-    employee = emp_result.scalar_one_or_none()
+    employee = emp_result.scalars().first()
     
     manager_dept = await get_manager_department(current_user, db)
     if not manager_dept or employee.department_id != manager_dept:
@@ -8309,7 +8927,7 @@ async def approve_overtime_request(
     emp_user_result = await db.execute(
         select(User).filter(User.id == employee.user_id)
     )
-    emp_user = emp_user_result.scalar_one_or_none()
+    emp_user = emp_user_result.scalars().first()
     
     # Create notification for employee
     if emp_user:
@@ -8344,7 +8962,7 @@ async def reject_overtime_request(
     result = await db.execute(
         select(OvertimeRequest).filter(OvertimeRequest.id == request_id)
     )
-    ot_request = result.scalar_one_or_none()
+    ot_request = result.scalars().first()
     
     if not ot_request:
         raise HTTPException(status_code=404, detail="Overtime request not found")
@@ -8353,7 +8971,7 @@ async def reject_overtime_request(
     emp_result = await db.execute(
         select(Employee).filter(Employee.id == ot_request.employee_id)
     )
-    employee = emp_result.scalar_one_or_none()
+    employee = emp_result.scalars().first()
     
     manager_dept = await get_manager_department(current_user, db)
     if not manager_dept or employee.department_id != manager_dept:
@@ -8367,7 +8985,7 @@ async def reject_overtime_request(
     emp_user_result = await db.execute(
         select(User).filter(User.id == employee.user_id)
     )
-    emp_user = emp_user_result.scalar_one_or_none()
+    emp_user = emp_user_result.scalars().first()
     
     # Create notification for employee
     if emp_user:
@@ -8390,6 +9008,93 @@ async def reject_overtime_request(
     await db.commit()
     await db.refresh(ot_request)
     
+    return ot_request
+
+
+@app.delete("/overtime-requests/{request_id}")
+async def cancel_overtime_request(
+    request_id: int,
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db)
+):
+    """Employee cancels a pending overtime request"""
+    result = await db.execute(
+        select(OvertimeRequest).filter(OvertimeRequest.id == request_id)
+    )
+    ot_request = result.scalar_one_or_none()
+
+    if not ot_request:
+        raise HTTPException(status_code=404, detail="Overtime request not found")
+
+    emp_result = await db.execute(
+        select(Employee).filter(Employee.user_id == current_user.id)
+    )
+    employee = emp_result.scalar_one_or_none()
+
+    if not employee or ot_request.employee_id != employee.id:
+        raise HTTPException(status_code=403, detail="Cannot cancel another employee's overtime request")
+
+    if ot_request.status != OvertimeStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Only pending overtime requests can be cancelled")
+
+    await db.delete(ot_request)
+    await db.commit()
+
+    return {"message": "Overtime request cancelled"}
+
+
+@app.put("/overtime-requests/{request_id}/revoke", response_model=OvertimeRequestResponse)
+async def revoke_overtime_request(
+    request_id: int,
+    data: dict,
+    current_user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db)
+):
+    """Manager revokes a previously approved overtime request (sets to rejected)"""
+    result = await db.execute(
+        select(OvertimeRequest).filter(OvertimeRequest.id == request_id)
+    )
+    ot_request = result.scalar_one_or_none()
+
+    if not ot_request:
+        raise HTTPException(status_code=404, detail="Overtime request not found")
+
+    emp_result = await db.execute(
+        select(Employee).filter(Employee.id == ot_request.employee_id)
+    )
+    employee = emp_result.scalar_one_or_none()
+
+    manager_dept = await get_manager_department(current_user, db)
+    if not manager_dept or employee.department_id != manager_dept:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    if ot_request.status != OvertimeStatus.APPROVED:
+        raise HTTPException(status_code=400, detail="Only approved overtime can be revoked")
+
+    ot_request.status = OvertimeStatus.REJECTED
+    ot_request.approved_at = datetime.utcnow()
+    ot_request.approval_notes = data.get("approval_notes", "Revoked by manager")
+
+    emp_user_result = await db.execute(
+        select(User).filter(User.id == employee.user_id)
+    )
+    emp_user = emp_user_result.scalar_one_or_none()
+
+    if emp_user:
+        notification_title = "⚠️ Overtime Approval Revoked"
+        notification_message = f"Your overtime request for {ot_request.request_date} has been revoked."
+        await create_notification(
+            user_id=emp_user.id,
+            title=notification_title,
+            message=notification_message,
+            notification_type="overtime_rejected",
+            related_id=ot_request.id,
+            db=db
+        )
+
+    await db.commit()
+    await db.refresh(ot_request)
+
     return ot_request
 
 
@@ -8424,7 +9129,7 @@ async def manager_approve_overtime(
     emp_result = await db.execute(
         select(Employee).filter(Employee.id == employee_id)
     )
-    employee = emp_result.scalar_one_or_none()
+    employee = emp_result.scalars().first()
     
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -8442,7 +9147,7 @@ async def manager_approve_overtime(
         )
     )
     
-    if existing.scalar_one_or_none():
+    if existing.scalars().first():
         raise HTTPException(status_code=400, detail="Overtime already approved for this date")
     
     # Create and immediately approve
@@ -8463,9 +9168,20 @@ async def manager_approve_overtime(
     await db.commit()
     await db.refresh(ot_request)
     
-    return ot_request
-    await db.commit()
-    await db.refresh(ot_request)
+    # Log the action
+    try:
+        emp_name = f"{employee.first_name} {employee.last_name}"
+        await log_action(
+            db=db,
+            user_id=current_user.id,
+            action="APPROVE_OVERTIME",
+            entity_type="OVERTIME_REQUEST",
+            entity_id=ot_request.id,
+            description=f"Approved overtime for {emp_name} on {request_date} ({from_time}-{to_time}, {request_hours}h)",
+            new_values={"status": "approved", "request_hours": request_hours},
+        )
+    except Exception as e:
+        print(f"Failed to log overtime approval: {e}")
     
     return ot_request
 
@@ -8494,7 +9210,7 @@ async def get_overtime_tracking(
         emp_result = await db.execute(
             select(Employee).filter(Employee.user_id == current_user.id)
         )
-        employee = emp_result.scalar_one_or_none()
+        employee = emp_result.scalars().first()
         if not employee:
             raise HTTPException(status_code=400, detail="Employee record not found")
         query = query.filter(OvertimeTracking.employee_id == employee.id)
@@ -8522,7 +9238,7 @@ async def get_overtime_tracking(
             emp_result = await db.execute(
                 select(Employee).filter(Employee.user_id == current_user.id)
             )
-            employee = emp_result.scalar_one_or_none()
+            employee = emp_result.scalars().first()
             if employee:
                 tracking = OvertimeTracking(
                     employee_id=employee.id,
@@ -8558,7 +9274,7 @@ async def check_overtime_availability(
     emp_result = await db.execute(
         select(Employee).filter(Employee.id == employee_id)
     )
-    employee = emp_result.scalar_one_or_none()
+    employee = emp_result.scalars().first()
     
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -8575,7 +9291,7 @@ async def check_overtime_availability(
             OvertimeTracking.month == month
         )
     )
-    tracking = result.scalar_one_or_none()
+    tracking = result.scalars().first()
     
     if not tracking:
         # Create default tracking if doesn't exist
@@ -8622,7 +9338,7 @@ async def record_overtime_worked(
     emp_result = await db.execute(
         select(Employee).filter(Employee.id == employee_id)
     )
-    employee = emp_result.scalar_one_or_none()
+    employee = emp_result.scalars().first()
     
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -8651,7 +9367,7 @@ async def record_overtime_worked(
             OvertimeTracking.month == month
         )
     )
-    tracking = result.scalar_one_or_none()
+    tracking = result.scalars().first()
     
     if not tracking:
         # Create if doesn't exist
@@ -8691,7 +9407,7 @@ async def list_overtime_worked(
         emp_result = await db.execute(
             select(Employee).filter(Employee.user_id == current_user.id)
         )
-        employee = emp_result.scalar_one_or_none()
+        employee = emp_result.scalars().first()
         if not employee:
             raise HTTPException(status_code=400, detail="Employee record not found")
         query = query.filter(OvertimeWorked.employee_id == employee.id)

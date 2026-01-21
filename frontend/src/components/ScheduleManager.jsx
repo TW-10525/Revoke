@@ -97,12 +97,16 @@ const ScheduleManager = ({ departmentId, employees = [], roles = [] }) => {
       const weekDates = getWeekDates(currentWeekStart);
       const startDate = weekDates[0];
       const endDate = weekDates[6];
-      const response = await getSchedules(startDate, endDate);
+      const response = await getSchedules(startDate, endDate, departmentId);
       setSchedules(response.data || []);
       setEditedSchedules(JSON.parse(JSON.stringify(response.data || [])));
 
       // Fetch leave requests
-      const leavesRes = await api.get('/leave-requests');
+      const params = {};
+      if (departmentId) {
+        params.department_id = departmentId;
+      }
+      const leavesRes = await api.get('/leave-requests', { params });
       if (leavesRes.data) {
         const leavesByKey = {};
         console.log('All leave requests:', leavesRes.data);
@@ -150,7 +154,7 @@ const ScheduleManager = ({ departmentId, employees = [], roles = [] }) => {
       const endDate = weekDates[6];
 
       console.log('Generating schedules for', startDate, 'to', endDate);
-      const response = await generateSchedule(startDate, endDate);
+      const response = await generateSchedule(startDate, endDate, false, departmentId);
       console.log('Generation response:', response);
 
       // ===== NEW: Check if confirmation required =====
@@ -162,7 +166,7 @@ const ScheduleManager = ({ departmentId, employees = [], roles = [] }) => {
         if (shouldRegenerate) {
           // Call again with regenerate=true flag
           setLoading(true);
-          const regenerateResponse = await generateSchedule(startDate, endDate, true);
+          const regenerateResponse = await generateSchedule(startDate, endDate, true, departmentId);
           const scheduleCount = regenerateResponse.data?.schedules_created || 0;
           const feedback = regenerateResponse.data?.feedback || [];
 

@@ -196,9 +196,14 @@ const ManagerEmployees = ({ user, onRoleSwitch }) => {
   const loadData = async () => {
     try {
       setLoading(true);
+      const deptId = managerDeptId || user?.manager_department_id;
+      const params = { show_inactive: showInactive };
+      if (deptId) {
+        params.department_id = deptId;
+      }
       const [employeesRes, rolesRes] = await Promise.all([
-        api.get('/employees', { params: { show_inactive: showInactive } }),
-        listRoles()
+        api.get('/employees', { params }),
+        listRoles(deptId)
       ]);
       setEmployees(employeesRes.data);
       setRoles(rolesRes.data);
@@ -702,7 +707,8 @@ const ManagerRoles = ({ user, onRoleSwitch }) => {
   const loadRoles = async () => {
     try {
       setLoading(true);
-      const response = await listRoles();
+      const deptId = user?.manager_department_id;
+      const response = await listRoles(deptId);
       console.log('Loaded roles:', response.data);
       setRoles(response.data);
 
@@ -1507,9 +1513,13 @@ const ManagerSchedules = ({ user, onRoleSwitch }) => {
   const loadData = async () => {
     try {
       setLoading(true);
+      const params = {};
+      if (user?.manager_department_id) {
+        params.department_id = user.manager_department_id;
+      }
       const [empRes, rolesRes] = await Promise.all([
-        listEmployees(),
-        listRoles()
+        api.get('/employees', { params }),
+        listRoles(user?.manager_department_id)
       ]);
 
       setEmployees(empRes?.data || []);
@@ -1534,6 +1544,7 @@ const ManagerSchedules = ({ user, onRoleSwitch }) => {
       <Header title={t('scheduleManagement')} subtitle={t('scheduleSubtitle')} user={user} onRoleSwitch={onRoleSwitch} />
       <div className="p-6">
         <ScheduleManager
+          departmentId={user?.manager_department_id}
           employees={employees}
           roles={roles}
         />
@@ -1556,7 +1567,7 @@ function getWeekDates() {
   return weekDates;
 }
 
-const ManagerLeaves = ({ onRoleSwitch }) => {
+const ManagerLeaves = ({ user, onRoleSwitch }) => {
   const { t } = useLanguage();
   const [leaves, setLeaves] = useState([]);
   const [selectedLeave, setSelectedLeave] = useState(null);
@@ -1575,7 +1586,11 @@ const ManagerLeaves = ({ onRoleSwitch }) => {
 
   const loadLeaves = async () => {
     try {
-      const response = await listLeaveRequests();
+      const params = {};
+      if (user?.manager_department_id) {
+        params.department_id = user.manager_department_id;
+      }
+      const response = await api.get('/leave-requests', { params });
       setLeaves(response.data);
     } catch (error) {
       console.error('Failed to load leave requests:', error);
@@ -1609,6 +1624,8 @@ const ManagerLeaves = ({ onRoleSwitch }) => {
     try {
       if (action === 'approve') {
         await approveLeave(selectedLeave.id, reviewNotes || undefined);
+      } else if (action === 'revoke') {
+        await rejectLeave(selectedLeave.id, reviewNotes || 'Revoked after approval');
       } else {
         await rejectLeave(selectedLeave.id, reviewNotes || undefined);
       }
@@ -1987,6 +2004,15 @@ const ManagerLeaves = ({ onRoleSwitch }) => {
               <XCircle className="w-5 h-5" />
             </button>
           </div>
+        ) : row.status === 'approved' ? (
+          <button
+            onClick={() => handleReview(row, 'revoke')}
+            className="text-red-600 hover:text-red-800 flex items-center gap-1"
+            title="Revoke approval"
+          >
+            <Trash2 className="w-5 h-5" />
+            <span className="text-sm">Revoke</span>
+          </button>
         ) : (
           <span className="text-gray-400 text-sm">{t('reviewed')}</span>
         )
@@ -2005,6 +2031,11 @@ const ManagerLeaves = ({ onRoleSwitch }) => {
   const paidCount = leaves.filter(l => l.leave_type === 'paid').length;
   const unpaidCount = leaves.filter(l => l.leave_type === 'unpaid').length;
   const compOffCount = leaves.filter(l => l.leave_type === 'comp_off').length;
+  const modalActionLabel = action === 'approve'
+    ? t('approveLeavRequest')
+    : action === 'revoke'
+    ? 'Revoke Leave Request'
+    : t('rejectLeavRequest');
 
   return (
     <div>
@@ -2530,7 +2561,7 @@ const ManagerLeaves = ({ onRoleSwitch }) => {
         <Modal
           isOpen={showModal}
           onClose={() => setShowModal(false)}
-          title={`${action === 'approve' ? t('approveLeavRequest') : t('rejectLeavRequest')} ${selectedLeave?.leave_type === 'comp_off' ? t('compOffUsage') : t('leaveType')} ${t('total')}`}
+          title={`${modalActionLabel} ${selectedLeave?.leave_type === 'comp_off' ? t('compOffUsage') : t('leaveType')} ${t('total')}`}
           footer={
             <div className="flex justify-end space-x-3">
               <Button variant="outline" onClick={() => setShowModal(false)}>
@@ -2540,7 +2571,7 @@ const ManagerLeaves = ({ onRoleSwitch }) => {
                 variant={action === 'approve' ? 'success' : 'danger'}
                 onClick={handleSubmitReview}
               >
-                {action === 'approve' ? t('approveLeavRequest') : t('rejectLeavRequest')}
+                {modalActionLabel}
               </Button>
             </div>
           }
@@ -2627,20 +2658,20 @@ const ManagerAttendance = ({ user, onRoleSwitch }) => {
     // load roles so we can resolve role names when schedule.role object is not included
     (async () => {
       try {
-        const res = await listRoles();
+        const deptId = user?.manager_department_id;
+        const res = await listRoles(deptId);
         setRoles(res.data || []);
       } catch (err) {
         console.error('Failed to load roles for attendance view:', err);
       }
     })();
-  }, []);
+  }, [user?.manager_department_id]);
 
   const loadManagerDepartment = async () => {
     try {
-      // Get the current manager's department
-      const response = await api.get('/managers/me');
-      if (response.data && response.data.department_id) {
-        setManagerDepartmentId(response.data.department_id);
+      // Get the current manager's department from user object
+      if (user?.manager_department_id) {
+        setManagerDepartmentId(user.manager_department_id);
       }
     } catch (err) {
       console.error('Failed to load manager department:', err);
@@ -2650,7 +2681,8 @@ const ManagerAttendance = ({ user, onRoleSwitch }) => {
   const loadAttendance = async () => {
     try {
       const today = format(new Date(), 'yyyy-MM-dd');
-      const response = await getAttendance(today, today);
+      const deptId = managerDepartmentId || user?.manager_department_id;
+      const response = await getAttendance(today, today, deptId);
       setAttendance(response.data);
 
       // Calculate real statistics from attendance data
@@ -3444,4 +3476,5 @@ const ManagerDashboard = ({ user, onLogout, onRoleSwitch }) => {
   );
 };
 
+export { ManagerDashboardHome, ManagerEmployees, ManagerRoles, ManagerSchedules, ManagerLeaves, ManagerAttendance, ManagerMessages };
 export default ManagerDashboard;

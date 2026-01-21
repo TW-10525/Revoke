@@ -3,10 +3,25 @@ Audit logging utility for tracking all important actions
 """
 
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, date
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models import AuditLog, User
+import json
+
+
+def serialize_for_json(obj: Any) -> Any:
+    """Convert non-serializable objects to JSON-compatible types"""
+    if isinstance(obj, dict):
+        return {k: serialize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [serialize_for_json(item) for item in obj]
+    elif isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    elif isinstance(obj, bytes):
+        return obj.decode('utf-8', errors='ignore')
+    else:
+        return obj
 
 
 async def log_action(
@@ -44,14 +59,18 @@ async def log_action(
         AuditLog: The created audit log entry
     """
     
+    # Serialize date objects to ISO format strings for JSON storage
+    serialized_old_values = serialize_for_json(old_values) if old_values else None
+    serialized_new_values = serialize_for_json(new_values) if new_values else None
+    
     audit_log = AuditLog(
         user_id=user_id,
         action=action,
         entity_type=entity_type,
         entity_id=entity_id,
         description=description,
-        old_values=old_values,
-        new_values=new_values,
+        old_values=serialized_old_values,
+        new_values=serialized_new_values,
         ip_address=ip_address,
         user_agent=user_agent,
         status=status,

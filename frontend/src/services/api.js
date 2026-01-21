@@ -101,7 +101,12 @@ export const deleteEmployee = (id, hardDelete = false) =>
 
 // Roles
 export const createRole = (roleData) => api.post('/roles', roleData);
-export const listRoles = () => api.get('/roles');
+export const listRoles = (departmentId = null) => {
+  if (departmentId) {
+    return api.get(`/roles?department_id=${departmentId}`);
+  }
+  return api.get('/roles');
+};
 export const getRoleById = (id) => api.get(`/roles/${id}`);
 export const updateRole = (id, roleData) => api.put(`/roles/${id}`, roleData);
 export const deleteRole = (id) => api.delete(`/roles/${id}`);
@@ -112,7 +117,12 @@ export const checkOut = (notes) => api.post('/employee/check-out', { notes });
 
 // Leave Requests
 export const createLeaveRequest = (leaveData) => api.post('/leave-requests', leaveData);
-export const listLeaveRequests = () => api.get('/leave-requests');
+export const listLeaveRequests = (departmentId = null) => {
+  if (departmentId) {
+    return api.get(`/leave-requests?department_id=${departmentId}`);
+  }
+  return api.get('/leave-requests');
+};
 export const approveLeave = (leaveId, reviewNotes) => {
   const body = {};
   if (reviewNotes) body.review_notes = reviewNotes;
@@ -123,14 +133,32 @@ export const rejectLeave = (leaveId, reviewNotes) => {
   if (reviewNotes) body.review_notes = reviewNotes;
   return api.post(`/manager/reject-leave/${leaveId}`, body);
 };
+export const cancelLeaveRequest = (leaveId) => api.delete(`/leave-requests/${leaveId}`);
 
 // Leave Statistics
 export const getLeaveStatistics = () => api.get('/leave-statistics');
 export const getEmployeeLeaveStatistics = (employeeId) => api.get(`/leave-statistics/employee/${employeeId}`);
 
+// Overtime Requests
+export const createOvertimeRequest = (data) => api.post('/overtime-requests', data);
+export const listOvertimeRequests = (status = null) =>
+  api.get(status ? `/overtime-requests?status=${status}` : '/overtime-requests');
+export const approveOvertimeRequest = (requestId, approvalNotes = '') =>
+  api.put(`/overtime-requests/${requestId}/approve`, { approval_notes: approvalNotes });
+export const rejectOvertimeRequest = (requestId, approvalNotes = '') =>
+  api.put(`/overtime-requests/${requestId}/reject`, { approval_notes: approvalNotes });
+export const revokeOvertimeRequest = (requestId, approvalNotes = '') =>
+  api.put(`/overtime-requests/${requestId}/revoke`, { approval_notes: approvalNotes });
+export const cancelOvertimeRequest = (requestId) => api.delete(`/overtime-requests/${requestId}`);
+
 // Comp-Off Management
 export const createCompOffRequest = (compOffData) => api.post('/comp-off-requests', compOffData);
-export const listCompOffRequests = () => api.get('/comp-off-requests');
+export const listCompOffRequests = (departmentId = null) => {
+  if (departmentId) {
+    return api.get(`/comp-off-requests?department_id=${departmentId}`);
+  }
+  return api.get('/comp-off-requests');
+};
 export const getCompOffTracking = () => api.get('/comp-off-tracking');
 export const getMonthlyCompOffBreakdown = () => api.get('/comp-off/monthly-breakdown');
 export const validateCompOffAvailable = (month) => api.get(`/comp-off/validate-available/${month}`);
@@ -142,6 +170,7 @@ export const rejectCompOff = (compOffId, reviewNotes) => {
   const body = { review_notes: reviewNotes || '' };
   return api.post(`/manager/reject-comp-off/${compOffId}`, body);
 };
+export const cancelCompOffRequest = (compOffId) => api.delete(`/comp-off-requests/${compOffId}`);
 export const getCompOffStatistics = () => api.get('/comp-off-statistics');
 export const exportCompOffReport = (language = 'en') => api.get(`/comp-off/export/employee?language=${language}`, { responseType: 'blob' });
 export const exportLeaveCompOffReport = (employeeId, language = 'en') => api.get(`/manager/export-leave-compoff/${employeeId}?language=${language}`, { responseType: 'blob' });
@@ -178,20 +207,22 @@ export const deleteMessage = (id) => api.delete(`/messages/${id}`);
 export const markMessageAsRead = (id) => api.put(`/messages/${id}/read`);
 
 // Schedules
-export const getSchedules = (startDate, endDate) => {
+export const getSchedules = (startDate, endDate, departmentId = null) => {
   const params = new URLSearchParams();
   if (startDate) params.append('start_date', startDate);
   if (endDate) params.append('end_date', endDate);
+  if (departmentId) params.append('department_id', departmentId);
   return api.get(`/schedules?${params.toString()}`);
 };
 export const createSchedule = (scheduleData) => api.post('/schedules', scheduleData);
 export const updateSchedule = (id, scheduleData) => api.put(`/schedules/${id}`, scheduleData);
 export const deleteSchedule = (id) => api.delete(`/schedules/${id}`);
-export const generateSchedule = (startDate, endDate, regenerate = false) => {
+export const generateSchedule = (startDate, endDate, regenerate = false, departmentId = null) => {
   const params = new URLSearchParams();
   params.append('start_date', startDate);
   params.append('end_date', endDate);
   params.append('regenerate', regenerate);
+  if (departmentId) params.append('department_id', departmentId);
   return api.post(`/schedules/generate?${params.toString()}`);
 };
 
@@ -200,10 +231,11 @@ export const recordAttendance = (attendanceData) =>
   api.post('/attendance/record', attendanceData);
 export const recordCheckout = (attendanceId, checkoutData) =>
   api.put(`/attendance/${attendanceId}/checkout`, checkoutData);
-export const getAttendance = (startDate, endDate) => {
+export const getAttendance = (startDate, endDate, departmentId = null) => {
   const params = new URLSearchParams();
   if (startDate) params.append('start_date', startDate);
   if (endDate) params.append('end_date', endDate);
+  if (departmentId) params.append('department_id', departmentId);
   return api.get(`/attendance?${params.toString()}`);
 };
 export const getAttendanceSummary = (startDate, endDate) => {
@@ -251,10 +283,11 @@ export const getWeekValidation = (employeeId, year, month, week) => {
 };
 
 // Schedule Generation
-export const generateSchedules = (startDate, endDate) => {
+export const generateSchedules = (startDate, endDate, departmentId = null) => {
   const params = new URLSearchParams();
   params.append('start_date', startDate);
   params.append('end_date', endDate);
+  if (departmentId) params.append('department_id', departmentId);
   return api.post(`/schedules/generate?${params.toString()}`);
 };
 
