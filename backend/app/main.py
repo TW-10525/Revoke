@@ -2111,6 +2111,7 @@ async def update_employee(
     employee.updated_at = datetime.utcnow()
     db.add(employee)
     await db.commit()
+<<<<<<< HEAD
     await db.refresh(employee, attribute_names=['department'])
     
     # Log the action
@@ -2126,8 +2127,18 @@ async def update_employee(
         )
     except Exception as e:
         print(f"Failed to log employee update: {e}")
+=======
+>>>>>>> features/main
     
-    return employee
+    # Re-fetch with relationships to avoid lazy-loading in response model
+    refreshed_result = await db.execute(
+        select(Employee)
+        .options(selectinload(Employee.department))
+        .filter(Employee.id == employee.id)
+    )
+    refreshed_employee = refreshed_result.scalar_one_or_none()
+    
+    return refreshed_employee or employee
 
 
 @app.delete("/employees/{employee_id}")
@@ -4717,6 +4728,37 @@ async def get_manager_leave_requests(
     return result.scalars().all()
 
 
+@app.delete("/leave-requests/{leave_id}")
+async def cancel_leave_request(
+    leave_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Allow an employee to withdraw a pending leave request before review"""
+    result = await db.execute(select(LeaveRequest).filter(LeaveRequest.id == leave_id))
+    leave_request = result.scalar_one_or_none()
+
+    if not leave_request:
+        raise HTTPException(status_code=404, detail="Leave request not found")
+
+    if current_user.user_type != UserType.EMPLOYEE:
+        raise HTTPException(status_code=403, detail="Only employees can cancel their leave requests")
+
+    emp_result = await db.execute(select(Employee).filter(Employee.user_id == current_user.id))
+    employee = emp_result.scalar_one_or_none()
+
+    if not employee or leave_request.employee_id != employee.id:
+        raise HTTPException(status_code=403, detail="Cannot cancel leave for another employee")
+
+    if leave_request.status != LeaveStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Only pending leave requests can be cancelled")
+
+    await db.delete(leave_request)
+    await db.commit()
+
+    return {"message": "Leave request cancelled"}
+
+
 @app.get("/leave-statistics")
 async def get_leave_statistics(
     current_user: User = Depends(get_current_active_user),
@@ -5638,6 +5680,10 @@ async def reject_leave(
 
     if not leave_request:
         raise HTTPException(status_code=404, detail="Leave request not found")
+    
+    previous_status = leave_request.status
+    if previous_status == LeaveStatus.REJECTED:
+        raise HTTPException(status_code=400, detail="Leave request already rejected")
 
     # Get the manager record for current user
     manager_result = await db.execute(select(Manager).filter(Manager.user_id == current_user.id))
@@ -5656,6 +5702,46 @@ async def reject_leave(
         select(Employee).filter(Employee.id == leave_request.employee_id)
     )
     employee = emp_result.scalars().first()
+
+    # If this leave was previously approved, clean up schedules and comp-off tracking
+    if previous_status == LeaveStatus.APPROVED and employee:
+        # Remove leave/comp-off schedules that were generated during approval
+        await db.execute(
+            delete(Schedule).where(
+                Schedule.employee_id == employee.id,
+                Schedule.date >= leave_request.start_date,
+                Schedule.date <= leave_request.end_date,
+                Schedule.status.in_([
+                    'leave',
+                    'leave_half_morning',
+                    'leave_half_afternoon',
+                    'comp_off_taken'
+                ])
+            )
+        )
+
+        # Revert comp-off usage counts if needed
+        if leave_request.leave_type == 'comp_off':
+            tracking_result = await db.execute(
+                select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
+            )
+            tracking = tracking_result.scalar_one_or_none()
+
+            if tracking:
+                comp_off_days = (leave_request.end_date - leave_request.start_date).days + 1
+                tracking.used_days = max(0, tracking.used_days - comp_off_days)
+                tracking.available_days = max(0, tracking.earned_days - tracking.used_days)
+                tracking.updated_at = datetime.utcnow()
+
+                # Remove comp-off detail records tied to this leave window
+                await db.execute(
+                    delete(CompOffDetail).where(
+                        CompOffDetail.tracking_id == tracking.id,
+                        CompOffDetail.type == 'used',
+                        CompOffDetail.date >= datetime.combine(leave_request.start_date, datetime.min.time()),
+                        CompOffDetail.date <= datetime.combine(leave_request.end_date, datetime.max.time())
+                    )
+                )
 
     # Get employee user for notification
     if employee:
@@ -5781,8 +5867,13 @@ async def create_comp_off_request(
     db.add(comp_off_request)
     await db.commit()
     
-    # Reload with eager loading of employee relationship
-    await db.refresh(comp_off_request, attribute_names=['employee'])
+    # Reload with eager loading of employee + department to avoid lazy loading in response
+    refreshed_result = await db.execute(
+        select(CompOffRequest)
+        .options(selectinload(CompOffRequest.employee).selectinload(Employee.department))
+        .filter(CompOffRequest.id == comp_off_request.id)
+    )
+    comp_off_request = refreshed_result.scalar_one_or_none() or comp_off_request
     
     # Send notification to manager if employee created the request
     if current_user.user_type == UserType.EMPLOYEE and employee and employee.department_id:
@@ -5826,6 +5917,7 @@ async def list_comp_off_requests(
             if not employee:
                 return []
 
+<<<<<<< HEAD
             result = await db.execute(
                 select(CompOffRequest)
                 .options(selectinload(CompOffRequest.employee).selectinload(Employee.department))
@@ -5839,10 +5931,25 @@ async def list_comp_off_requests(
                 select(Manager).filter(Manager.user_id == current_user.id)
             )
             manager = manager_result.scalars().first()
+=======
+        result = await db.execute(
+            select(CompOffRequest)
+            .options(selectinload(CompOffRequest.employee).selectinload(Employee.department))
+            .filter(CompOffRequest.employee_id == employee.id)
+            .order_by(CompOffRequest.comp_off_date.desc())
+        )
+    elif current_user.user_type == UserType.MANAGER:
+        # Managers see comp-off requests from employees in their department only
+        manager_result = await db.execute(
+            select(Manager).filter(Manager.user_id == current_user.id)
+        )
+        manager = manager_result.scalar_one_or_none()
+>>>>>>> features/main
 
             if not manager:
                 return []
 
+<<<<<<< HEAD
             # Get all comp-off requests from employees in this manager's department
             result = await db.execute(
                 select(CompOffRequest)
@@ -5877,6 +5984,25 @@ async def list_comp_off_requests(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error loading comp-off requests: {str(e)}")
+=======
+        # Get all comp-off requests from employees in this manager's department
+        result = await db.execute(
+            select(CompOffRequest)
+            .options(selectinload(CompOffRequest.employee).selectinload(Employee.department))
+            .join(Employee, CompOffRequest.employee_id == Employee.id)
+            .filter(Employee.department_id == manager.department_id)
+            .order_by(CompOffRequest.comp_off_date.desc())
+        )
+    else:
+        # Admins see all requests
+        result = await db.execute(
+            select(CompOffRequest)
+            .options(selectinload(CompOffRequest.employee).selectinload(Employee.department))
+            .order_by(CompOffRequest.comp_off_date.desc())
+        )
+
+    return result.scalars().all()
+>>>>>>> features/main
 
 
 @app.get("/comp-off-tracking", response_model=CompOffTrackingResponse)
@@ -6247,6 +6373,17 @@ async def approve_comp_off(
             shift_id = shift.id
             print(f"[DEBUG] Found same-day shift: {shift.name} ({shift_start_time}-{shift_end_time})", flush=True)
     
+    # Clear schedule_id on existing comp-off requests for this employee/date to avoid FK conflicts
+    await db.execute(
+        update(CompOffRequest)
+        .where(
+            CompOffRequest.employee_id == employee.id,
+            CompOffRequest.comp_off_date == comp_off.comp_off_date,
+            CompOffRequest.schedule_id.isnot(None)
+        )
+        .values(schedule_id=None)
+    )
+
     # Delete any existing schedules for this date (to avoid duplicates)
     # This includes both regular schedules and any existing comp_off_taken schedules
     await db.execute(
@@ -6376,6 +6513,8 @@ async def reject_comp_off(
     if not comp_off:
         raise HTTPException(status_code=404, detail="Comp-off request not found")
     
+    previous_status = comp_off.status
+    
     # Get the manager record
     manager_result = await db.execute(
         select(Manager).filter(Manager.user_id == current_user.id)
@@ -6395,6 +6534,33 @@ async def reject_comp_off(
         select(Employee).filter(Employee.id == comp_off.employee_id)
     )
     employee = emp_result.scalars().first()
+    
+    # If this was previously approved, clean up schedule and tracking
+    if previous_status == LeaveStatus.APPROVED and employee:
+        if comp_off.schedule_id:
+            # Clear FK before deleting schedule to avoid constraint errors
+            schedule_id = comp_off.schedule_id
+            comp_off.schedule_id = None
+            await db.execute(delete(Schedule).where(Schedule.id == schedule_id))
+
+        tracking_result = await db.execute(
+            select(CompOffTracking).filter(CompOffTracking.employee_id == employee.id)
+        )
+        tracking = tracking_result.scalar_one_or_none()
+
+        if tracking:
+            tracking.earned_days = max(0, tracking.earned_days - 1)
+            tracking.available_days = max(0, tracking.earned_days - tracking.used_days)
+            tracking.updated_at = datetime.utcnow()
+
+            # Remove earned detail for this date
+            await db.execute(
+                delete(CompOffDetail).where(
+                    CompOffDetail.tracking_id == tracking.id,
+                    CompOffDetail.type == 'earned',
+                    CompOffDetail.date == comp_off.comp_off_date
+                )
+            )
     
     # Get employee user for notification
     if employee:
@@ -6437,6 +6603,42 @@ async def reject_comp_off(
     
     return {"message": "Comp-off rejected"}
 
+<<<<<<< HEAD
+=======
+
+@app.delete("/comp-off-requests/{comp_off_id}")
+async def cancel_comp_off_request(
+    comp_off_id: int,
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db)
+):
+    """Employee cancels a pending comp-off request"""
+    result = await db.execute(
+        select(CompOffRequest).filter(CompOffRequest.id == comp_off_id)
+    )
+    comp_off = result.scalar_one_or_none()
+
+    if not comp_off:
+        raise HTTPException(status_code=404, detail="Comp-off request not found")
+
+    emp_result = await db.execute(
+        select(Employee).filter(Employee.user_id == current_user.id)
+    )
+    employee = emp_result.scalar_one_or_none()
+
+    if not employee or comp_off.employee_id != employee.id:
+        raise HTTPException(status_code=403, detail="Cannot cancel another employee's request")
+
+    if comp_off.status != LeaveStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Only pending comp-off requests can be cancelled")
+
+    await db.delete(comp_off)
+    await db.commit()
+
+    return {"message": "Comp-off request cancelled"}
+
+
+>>>>>>> features/main
 # Comp-Off Statistics Endpoints
 @app.get("/comp-off-statistics")
 async def get_comp_off_statistics(
@@ -8758,7 +8960,7 @@ async def approve_overtime_request(
     # Create notification for employee
     if emp_user:
         notification_title = f"✅ Overtime Request Approved"
-        notification_message = f"Your overtime request for {ot_request.overtime_date} ({ot_request.hours_requested} hours) has been approved."
+        notification_message = f"Your overtime request for {ot_request.request_date} ({ot_request.request_hours} hours) has been approved."
         await create_notification(
             user_id=emp_user.id,
             title=notification_title,
@@ -8813,7 +9015,7 @@ async def reject_overtime_request(
     # Create notification for employee
     if emp_user:
         notification_title = f"❌ Overtime Request Rejected"
-        notification_message = f"Your overtime request for {ot_request.overtime_date} ({ot_request.hours_requested} hours) has been rejected."
+        notification_message = f"Your overtime request for {ot_request.request_date} ({ot_request.request_hours} hours) has been rejected."
         if rejection_data.get("approval_notes"):
             notification_message += f" Reason: {rejection_data.get('approval_notes')}"
         await create_notification(
@@ -8828,6 +9030,93 @@ async def reject_overtime_request(
     await db.commit()
     await db.refresh(ot_request)
     
+    return ot_request
+
+
+@app.delete("/overtime-requests/{request_id}")
+async def cancel_overtime_request(
+    request_id: int,
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db)
+):
+    """Employee cancels a pending overtime request"""
+    result = await db.execute(
+        select(OvertimeRequest).filter(OvertimeRequest.id == request_id)
+    )
+    ot_request = result.scalar_one_or_none()
+
+    if not ot_request:
+        raise HTTPException(status_code=404, detail="Overtime request not found")
+
+    emp_result = await db.execute(
+        select(Employee).filter(Employee.user_id == current_user.id)
+    )
+    employee = emp_result.scalar_one_or_none()
+
+    if not employee or ot_request.employee_id != employee.id:
+        raise HTTPException(status_code=403, detail="Cannot cancel another employee's overtime request")
+
+    if ot_request.status != OvertimeStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Only pending overtime requests can be cancelled")
+
+    await db.delete(ot_request)
+    await db.commit()
+
+    return {"message": "Overtime request cancelled"}
+
+
+@app.put("/overtime-requests/{request_id}/revoke", response_model=OvertimeRequestResponse)
+async def revoke_overtime_request(
+    request_id: int,
+    data: dict,
+    current_user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db)
+):
+    """Manager revokes a previously approved overtime request (sets to rejected)"""
+    result = await db.execute(
+        select(OvertimeRequest).filter(OvertimeRequest.id == request_id)
+    )
+    ot_request = result.scalar_one_or_none()
+
+    if not ot_request:
+        raise HTTPException(status_code=404, detail="Overtime request not found")
+
+    emp_result = await db.execute(
+        select(Employee).filter(Employee.id == ot_request.employee_id)
+    )
+    employee = emp_result.scalar_one_or_none()
+
+    manager_dept = await get_manager_department(current_user, db)
+    if not manager_dept or employee.department_id != manager_dept:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    if ot_request.status != OvertimeStatus.APPROVED:
+        raise HTTPException(status_code=400, detail="Only approved overtime can be revoked")
+
+    ot_request.status = OvertimeStatus.REJECTED
+    ot_request.approved_at = datetime.utcnow()
+    ot_request.approval_notes = data.get("approval_notes", "Revoked by manager")
+
+    emp_user_result = await db.execute(
+        select(User).filter(User.id == employee.user_id)
+    )
+    emp_user = emp_user_result.scalar_one_or_none()
+
+    if emp_user:
+        notification_title = "⚠️ Overtime Approval Revoked"
+        notification_message = f"Your overtime request for {ot_request.request_date} has been revoked."
+        await create_notification(
+            user_id=emp_user.id,
+            title=notification_title,
+            message=notification_message,
+            notification_type="overtime_rejected",
+            related_id=ot_request.id,
+            db=db
+        )
+
+    await db.commit()
+    await db.refresh(ot_request)
+
     return ot_request
 
 
