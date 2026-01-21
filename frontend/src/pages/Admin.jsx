@@ -170,9 +170,11 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
         usersMap[user.id] = user;
       });
       
+      // Merge manager and user info but keep manager.id intact (so deletes use the correct manager ID)
       const enhancedManagers = managersRes.data.map(manager => ({
         ...manager,
-        ...usersMap[manager.user_id]
+        ...usersMap[manager.user_id],
+        id: manager.id
       }));
       
       setManagers(enhancedManagers);
@@ -708,7 +710,7 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
           onClose={() => {
             setShowCreateConfirm(false);
           }}
-          title={t('confirmDelete')}
+          title={'Confirm creating new manager'}
           footer={
             <div className="flex justify-end space-x-3">
               <Button
@@ -730,9 +732,6 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
           }
         >
           <div className="space-y-4">
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <p className="text-green-900 font-medium">{t('createNewUser')}?</p>
-            </div>
             <div className="space-y-2 text-sm text-gray-700">
               <p><strong>{t('username')}:</strong> {formData.username}</p>
               <p><strong>{t('fullName')}:</strong> {formData.full_name}</p>
@@ -748,7 +747,7 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
           onClose={() => {
             setShowReassignConfirm(false);
           }}
-          title={t('confirmDelete')}
+          title={t('confirmReassign') || 'Confirm reassignment'}
           footer={
             <div className="flex justify-end space-x-3">
               <Button
@@ -2137,7 +2136,7 @@ const AdminSubAdmins = ({ user, onRoleSwitch }) => {
   );
 };
 
-const AdminAuditLogs = ({ user }) => {
+const AdminAuditLogs = ({ user, onRoleSwitch }) => {
   const { t } = useLanguage();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2215,59 +2214,68 @@ const AdminAuditLogs = ({ user }) => {
   ];
 
   return (
-    <div className="p-8 space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-900">{t('auditLogs')}</h1>
-      </div>
+    <div className="flex flex-col min-h-full">
+      <Header
+        title={t('auditLogs')}
+        subtitle={t('auditLogsSubtitle') || t('reviewRecentActivity') || 'Review recent activity and changes'}
+        user={user}
+        onRoleSwitch={onRoleSwitch}
+      />
 
-      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">{error}</div>}
+      <div className="p-8 space-y-6">
+        <div className="flex justify-between items-center">
+          <h1 className="text-3xl font-bold text-gray-900">{t('auditLogs')}</h1>
+        </div>
 
-      <Card>
-        <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">{t('action')}</label>
-              <input
-                type="text"
-                value={filters.action}
-                onChange={(e) => setFilters({...filters, action: e.target.value})}
-                placeholder="e.g., CREATE_EMPLOYEE"
-                className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">{t('entityType')}</label>
-              <input
-                type="text"
-                value={filters.entity_type}
-                onChange={(e) => setFilters({...filters, entity_type: e.target.value})}
-                placeholder="e.g., EMPLOYEE"
-                className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">{t('userId')}</label>
-              <input
-                type="number"
-                value={filters.user_id}
-                onChange={(e) => setFilters({...filters, user_id: e.target.value})}
-                placeholder="User ID"
-                className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
-              />
+        {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">{error}</div>}
+
+        <Card>
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">{t('action')}</label>
+                <input
+                  type="text"
+                  value={filters.action}
+                  onChange={(e) => setFilters({...filters, action: e.target.value})}
+                  placeholder="e.g., CREATE_EMPLOYEE"
+                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">{t('entityType')}</label>
+                <input
+                  type="text"
+                  value={filters.entity_type}
+                  onChange={(e) => setFilters({...filters, entity_type: e.target.value})}
+                  placeholder="e.g., EMPLOYEE"
+                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">{t('userId')}</label>
+                <input
+                  type="number"
+                  value={filters.user_id}
+                  onChange={(e) => setFilters({...filters, user_id: e.target.value})}
+                  placeholder="User ID"
+                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
             </div>
           </div>
-        </div>
-      </Card>
+        </Card>
 
-      <Card>
-        {loading ? (
-          <div className="text-center py-8">{t('loading')}...</div>
-        ) : logs.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">{t('noData')}</div>
-        ) : (
-          <Table columns={columns} data={logs} />
-        )}
-      </Card>
+        <Card>
+          {loading ? (
+            <div className="text-center py-8">{t('loading')}...</div>
+          ) : logs.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">{t('noData')}</div>
+          ) : (
+            <Table columns={columns} data={logs} />
+          )}
+        </Card>
+      </div>
     </div>
   );
 };
@@ -2285,7 +2293,7 @@ const AdminDashboard = ({ user, onLogout, onRoleSwitch }) => {
             <Route path="/managers" element={<AdminManagers user={user} onRoleSwitch={onRoleSwitch} />} />
             <Route path="/departments" element={<AdminDepartments user={user} onRoleSwitch={onRoleSwitch} />} />
             <Route path="/sub-admins" element={<AdminSubAdmins user={user} onRoleSwitch={onRoleSwitch} />} />
-            <Route path="/audit-logs" element={<AdminAuditLogs user={user} />} />
+            <Route path="/audit-logs" element={<AdminAuditLogs user={user} onRoleSwitch={onRoleSwitch} />} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>
