@@ -22,6 +22,7 @@ import api, {
   deleteMessage,
   markMessageAsRead,
   createLeaveRequest,
+  cancelLeaveRequest,
   getLeaveStatistics
 } from '../services/api';
 import {
@@ -648,6 +649,17 @@ const EmployeeLeaves = ({ user, onRoleSwitch }) => {
     }
   };
 
+  const handleWithdraw = async (leaveId) => {
+    if (!window.confirm('Withdraw this leave request?')) return;
+    setError('');
+    try {
+      await cancelLeaveRequest(leaveId);
+      loadLeaves();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to withdraw leave request');
+    }
+  };
+
   const getStatusBadge = (status) => {
     const configs = {
       pending: { bg: 'bg-yellow-100', text: 'text-yellow-800', icon: Clock },
@@ -801,6 +813,18 @@ const EmployeeLeaves = ({ user, onRoleSwitch }) => {
                         </div>
                       )}
                     </div>
+                    {leave.status === 'pending' && (
+                      <div className="ml-4">
+                        <Button
+                          variant="outline"
+                          onClick={() => handleWithdraw(leave.id)}
+                          className="text-red-600 border-red-200 hover:bg-red-50"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Withdraw
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1382,6 +1406,20 @@ const EmployeeRequests = ({ user, onRoleSwitch }) => {
     }
   };
 
+  const handleWithdraw = async (leaveId) => {
+    if (!window.confirm('Withdraw this leave request?')) return;
+    setError('');
+    setSuccess('');
+    try {
+      await cancelLeaveRequest(leaveId);
+      await loadRequests();
+      setSuccess('Leave request withdrawn.');
+      setTimeout(() => setSuccess(''), 2500);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to withdraw request');
+    }
+  };
+
   const getStatusColor = (status) => {
     switch (status) {
       case 'approved':
@@ -1473,6 +1511,17 @@ const EmployeeRequests = ({ user, onRoleSwitch }) => {
                       {req.reason && (
                         <p className="text-sm text-gray-600 mt-2"><strong>Reason:</strong> {req.reason}</p>
                       )}
+                    </div>
+                    <div className="ml-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleWithdraw(req.id)}
+                        className="text-red-600 border-red-200 hover:bg-red-50"
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Withdraw
+                      </Button>
                     </div>
                   </div>
                 </div>

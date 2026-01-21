@@ -238,6 +238,8 @@ const ManagerEmployees = ({ user, onRoleSwitch }) => {
       
       const employeeData = {
         ...formData,
+        // Send null instead of empty string to satisfy backend Optional[date]
+        hire_date: formData.hire_date ? formData.hire_date : null,
         department_id: departmentId
       };
       
@@ -295,7 +297,13 @@ const ManagerEmployees = ({ user, onRoleSwitch }) => {
         const detail = err.response.data.detail;
         // Handle Pydantic validation errors (array of error objects)
         if (Array.isArray(detail)) {
-          errorMsg = detail.map(e => `${e.loc?.join('.')}: ${e.msg}`).join('; ');
+          // Prefer a friendly message for hire_date
+          const hireDateIssue = detail.find(e => (e.loc || []).includes('hire_date'));
+          if (hireDateIssue) {
+            errorMsg = t('hireDateInvalid') || 'Hire date must be a valid date (YYYY-MM-DD). Leave it blank if unknown.';
+          } else {
+            errorMsg = detail.map(e => `${e.loc?.join('.')}: ${e.msg}`).join('; ');
+          }
         } else if (typeof detail === 'string') {
           errorMsg = detail;
         }
@@ -1616,6 +1624,8 @@ const ManagerLeaves = ({ user, onRoleSwitch }) => {
     try {
       if (action === 'approve') {
         await approveLeave(selectedLeave.id, reviewNotes || undefined);
+      } else if (action === 'revoke') {
+        await rejectLeave(selectedLeave.id, reviewNotes || 'Revoked after approval');
       } else {
         await rejectLeave(selectedLeave.id, reviewNotes || undefined);
       }
@@ -1994,6 +2004,15 @@ const ManagerLeaves = ({ user, onRoleSwitch }) => {
               <XCircle className="w-5 h-5" />
             </button>
           </div>
+        ) : row.status === 'approved' ? (
+          <button
+            onClick={() => handleReview(row, 'revoke')}
+            className="text-red-600 hover:text-red-800 flex items-center gap-1"
+            title="Revoke approval"
+          >
+            <Trash2 className="w-5 h-5" />
+            <span className="text-sm">Revoke</span>
+          </button>
         ) : (
           <span className="text-gray-400 text-sm">{t('reviewed')}</span>
         )
@@ -2012,6 +2031,11 @@ const ManagerLeaves = ({ user, onRoleSwitch }) => {
   const paidCount = leaves.filter(l => l.leave_type === 'paid').length;
   const unpaidCount = leaves.filter(l => l.leave_type === 'unpaid').length;
   const compOffCount = leaves.filter(l => l.leave_type === 'comp_off').length;
+  const modalActionLabel = action === 'approve'
+    ? t('approveLeavRequest')
+    : action === 'revoke'
+    ? 'Revoke Leave Request'
+    : t('rejectLeavRequest');
 
   return (
     <div>
@@ -2537,7 +2561,7 @@ const ManagerLeaves = ({ user, onRoleSwitch }) => {
         <Modal
           isOpen={showModal}
           onClose={() => setShowModal(false)}
-          title={`${action === 'approve' ? t('approveLeavRequest') : t('rejectLeavRequest')} ${selectedLeave?.leave_type === 'comp_off' ? t('compOffUsage') : t('leaveType')} ${t('total')}`}
+          title={`${modalActionLabel} ${selectedLeave?.leave_type === 'comp_off' ? t('compOffUsage') : t('leaveType')} ${t('total')}`}
           footer={
             <div className="flex justify-end space-x-3">
               <Button variant="outline" onClick={() => setShowModal(false)}>
@@ -2547,7 +2571,7 @@ const ManagerLeaves = ({ user, onRoleSwitch }) => {
                 variant={action === 'approve' ? 'success' : 'danger'}
                 onClick={handleSubmitReview}
               >
-                {action === 'approve' ? t('approveLeavRequest') : t('rejectLeavRequest')}
+                {modalActionLabel}
               </Button>
             </div>
           }
