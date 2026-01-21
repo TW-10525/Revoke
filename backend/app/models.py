@@ -357,6 +357,7 @@ class OvertimeRequest(Base):
     status = Column(SQLEnum(OvertimeStatus), default=OvertimeStatus.PENDING)
     manager_id = Column(Integer, ForeignKey('users.id', name='fk_ot_request_manager'), nullable=True)
     manager_notes = Column(Text, nullable=True)
+    approval_notes = Column(Text, nullable=True)  # Added for approval/rejection notes
     created_at = Column(DateTime, default=datetime.utcnow)
     approved_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

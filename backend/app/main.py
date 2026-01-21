@@ -1065,30 +1065,40 @@ async def create_user(
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    # Check if username exists
-    result = await db.execute(select(User).filter(User.username == user_data.username))
-    if result.scalars().first():
-        raise HTTPException(status_code=400, detail="Username already exists")
-    
-    # Check if email exists
-    result = await db.execute(select(User).filter(User.email == user_data.email))
-    if result.scalars().first():
-        raise HTTPException(status_code=400, detail="Email already exists")
-    
-    new_user = User(
-        username=user_data.username,
-        email=user_data.email,
-        hashed_password=get_password_hash(user_data.password),
-        full_name=user_data.full_name,
-        user_type=user_data.user_type,
-        is_active=True
-    )
-    
-    db.add(new_user)
-    await db.commit()
-    await db.refresh(new_user)
-    
-    return new_user
+    try:
+        # Check if username exists
+        result = await db.execute(select(User).filter(User.username == user_data.username))
+        if result.scalars().first():
+            raise HTTPException(status_code=400, detail="Username already exists")
+        
+        # Check if email exists
+        result = await db.execute(select(User).filter(User.email == user_data.email))
+        if result.scalars().first():
+            raise HTTPException(status_code=400, detail="Email already exists")
+        
+        new_user = User(
+            username=user_data.username,
+            email=user_data.email,
+            hashed_password=get_password_hash(user_data.password),
+            full_name=user_data.full_name,
+            user_type=user_data.user_type,
+            is_active=True
+        )
+        
+        db.add(new_user)
+        await db.commit()
+        await db.refresh(new_user)
+        
+        return new_user
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as e:
+        await db.rollback()
+        print(f"Error creating user: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to create user: {str(e)}")
 
 
 @app.get("/admin/users", response_model=List[UserResponse])
@@ -1698,85 +1708,122 @@ async def create_manager(
     db: AsyncSession = Depends(get_db)
 ):
     """Create a manager and link to a department. If force_reassign=true, will replace existing manager."""
-    # Check if user exists
-    result = await db.execute(select(User).filter(User.id == mgr_data.user_id))
-    if not result.scalars().first():
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    # Check if department exists
-    result = await db.execute(select(Department).filter(Department.id == mgr_data.department_id))
-    if not result.scalars().first():
-        raise HTTPException(status_code=404, detail="Department not found")
-    
-    # Generate manager_id (3-digit format)
-    all_managers_result = await db.execute(select(Manager))
-    all_managers = all_managers_result.scalars().all()
-    max_id = max([int(m.manager_id) for m in all_managers if m.manager_id.isdigit()], default=0)
-    new_manager_id = f"{max_id + 1:03d}"
-    
-    # Create new manager
-    manager = Manager(
-        manager_id=new_manager_id,
-        user_id=mgr_data.user_id,
-        department_id=None,  # set via helper for consistency
-        is_active=True
-    )
-    db.add(manager)
-    await db.flush()  # get manager.id for helper
-
-    # If another manager is on this department, either ask for confirmation or reassign
-    existing_result = await db.execute(
-        select(Manager)
-        .filter(
-            and_(
-                Manager.department_id == mgr_data.department_id,
-                Manager.id != manager.id
-            )
+    try:
+        # Check if user exists
+        result = await db.execute(select(User).filter(User.id == mgr_data.user_id))
+        if not result.scalars().first():
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Check if department exists
+        result = await db.execute(select(Department).filter(Department.id == mgr_data.department_id))
+        if not result.scalars().first():
+            raise HTTPException(status_code=404, detail="Department not found")
+        
+        # Generate manager_id (3-digit format)
+        all_managers_result = await db.execute(select(Manager))
+        all_managers = all_managers_result.scalars().all()
+        
+        # Extract numeric manager IDs, handling potential None values
+        numeric_ids = []
+        for m in all_managers:
+            if m.manager_id and m.manager_id.isdigit():
+                try:
+                    numeric_ids.append(int(m.manager_id))
+                except (ValueError, TypeError):
+                    pass
+        
+        max_id = max(numeric_ids) if numeric_ids else 0
+        new_manager_id = f"{max_id + 1:03d}"
+        
+        # Create new manager
+        manager = Manager(
+            manager_id=new_manager_id,
+            user_id=mgr_data.user_id,
+            department_id=None,  # set via helper for consistency
+            is_active=True
         )
-        .options(selectinload(Manager.user))
-    )
-    existing_manager = existing_result.scalars().first()
-    
-    if existing_manager and not force_reassign:
-        # Don't commit; return conflict so frontend can confirm
-        await db.rollback()
-        return {
-            "status": "conflict",
-            "message": "Manager already assigned to this department",
-            "action_required": "reassign",
-            "existing_manager": {
-                "id": existing_manager.id,
-                "manager_id": existing_manager.manager_id,
-                "user_id": existing_manager.user_id,
-                "username": existing_manager.user.username if existing_manager.user else None,
-                "full_name": existing_manager.user.full_name if existing_manager.user else None,
-                "email": existing_manager.user.email if existing_manager.user else None,
-                "department_id": existing_manager.department_id,
-                "is_active": existing_manager.is_active
-            },
-            "new_manager": {
-                "user_id": mgr_data.user_id,
-                "department_id": mgr_data.department_id
+        db.add(manager)
+        await db.flush()  # get manager.id for helper
+
+        # If another manager is on this department, either ask for confirmation or reassign
+        existing_result = await db.execute(
+            select(Manager)
+            .filter(
+                and_(
+                    Manager.department_id == mgr_data.department_id,
+                    Manager.id != manager.id
+                )
+            )
+            .options(selectinload(Manager.user))
+        )
+        existing_manager = existing_result.scalars().first()
+        
+        if existing_manager and not force_reassign:
+            # Get attributes before rollback to avoid greenlet issues
+            existing_id = existing_manager.id
+            existing_manager_id = existing_manager.manager_id
+            existing_user_id = existing_manager.user_id
+            existing_username = existing_manager.user.username if existing_manager.user else None
+            existing_full_name = existing_manager.user.full_name if existing_manager.user else None
+            existing_email = existing_manager.user.email if existing_manager.user else None
+            existing_department_id = existing_manager.department_id
+            existing_is_active = existing_manager.is_active
+            
+            # Don't commit; return conflict so frontend can confirm
+            await db.rollback()
+            return {
+                "status": "conflict",
+                "message": "Manager already assigned to this department",
+                "action_required": "reassign",
+                "existing_manager": {
+                    "id": existing_id,
+                    "manager_id": existing_manager_id,
+                    "user_id": existing_user_id,
+                    "username": existing_username,
+                    "full_name": existing_full_name,
+                    "email": existing_email,
+                    "department_id": existing_department_id,
+                    "is_active": existing_is_active
+                },
+                "new_manager": {
+                    "user_id": mgr_data.user_id,
+                    "department_id": mgr_data.department_id
+                }
             }
+        
+        # Reassign department to the new manager, unassigning any existing ones
+        await assign_manager_to_department(db, manager, mgr_data.department_id)
+        await db.commit()
+        
+        # Reload with relations for safe serialization
+        result = await db.execute(
+            select(Manager)
+            .options(selectinload(Manager.user), selectinload(Manager.department))
+            .filter(Manager.id == manager.id)
+        )
+        manager = result.scalar_one()
+        
+        return {
+            "status": "success",
+            "message": "Manager assigned successfully",
+            "manager": ManagerResponse.model_validate(manager)
         }
-    
-    # Reassign department to the new manager, unassigning any existing ones
-    await assign_manager_to_department(db, manager, mgr_data.department_id)
-    await db.commit()
-    
-    # Reload with relations for safe serialization
-    result = await db.execute(
-        select(Manager)
-        .options(selectinload(Manager.user), selectinload(Manager.department))
-        .filter(Manager.id == manager.id)
-    )
-    manager = result.scalar_one()
-    
-    return {
-        "status": "success",
-        "message": "Manager assigned successfully",
-        "manager": ManagerResponse.model_validate(manager)
-    }
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as e:
+        await db.rollback()
+        print(f"Error creating manager: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to create manager: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error creating manager: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to create manager: {str(e)}")
 
 
 
@@ -2049,7 +2096,14 @@ async def create_employee(
         user_id = user.id
     
     await db.commit()
-    await db.refresh(employee, attribute_names=['department'])
+    
+    # Reload with eager loading
+    result = await db.execute(
+        select(Employee)
+        .where(Employee.id == employee.id)
+        .options(selectinload(Employee.department))
+    )
+    employee = result.scalar_one()
     
     # Log the action
     try:
@@ -2181,7 +2235,14 @@ async def update_employee(
     employee.updated_at = datetime.utcnow()
     db.add(employee)
     await db.commit()
-    await db.refresh(employee, attribute_names=['department'])
+    
+    # Re-query with eager loading
+    result = await db.execute(
+        select(Employee)
+        .where(Employee.id == employee_id)
+        .options(selectinload(Employee.department))
+    )
+    employee = result.scalar_one()
     
     # Log the action
     try:
@@ -2674,7 +2735,17 @@ async def check_out(
         check_in.notes = check_out_data.notes
 
         await db.commit()
-        await db.refresh(check_in, ['employee', 'schedule'])
+        
+        # Re-query with eager loading
+        result = await db.execute(
+            select(CheckInOut)
+            .where(CheckInOut.id == check_in.id)
+            .options(
+                selectinload(CheckInOut.employee).selectinload(Employee.department),
+                selectinload(CheckInOut.schedule).selectinload(Schedule.role)
+            )
+        )
+        check_in = result.scalar_one()
 
         # Create or update Attendance record with overtime calculation
         try:
@@ -4696,20 +4767,27 @@ async def create_leave_request(
     db.add(leave_request)
     await db.commit()
     
-    # Refresh with eager loading of employee relationship
-    await db.refresh(leave_request, attribute_names=['employee'])
+    # Reload with eager loading of employee and department relationships
+    result = await db.execute(
+        select(LeaveRequest)
+        .where(LeaveRequest.id == leave_request.id)
+        .options(
+            selectinload(LeaveRequest.employee).selectinload(Employee.department)
+        )
+    )
+    leave_request = result.scalar_one()
     
     # Send notification to manager
-    if employee and employee.department_id:
+    if leave_request.employee and leave_request.employee.department_id:
         # Get manager for this employee's department
         manager_result = await db.execute(
-            select(Manager).filter(Manager.department_id == employee.department_id)
+            select(Manager).filter(Manager.department_id == leave_request.employee.department_id)
         )
         manager = manager_result.scalars().first()
         
         if manager and manager.user_id:
-            notification_title = f"📝 Leave Request from {employee.first_name} {employee.last_name}"
-            notification_message = f"{employee.first_name} {employee.last_name} has requested {leave_data.leave_type} leave from {leave_data.start_date} to {leave_data.end_date}."
+            notification_title = f"📝 Leave Request from {leave_request.employee.first_name} {leave_request.employee.last_name}"
+            notification_message = f"{leave_request.employee.first_name} {leave_request.employee.last_name} has requested {leave_data.leave_type} leave from {leave_data.start_date} to {leave_data.end_date}."
             await create_notification(
                 user_id=manager.user_id,
                 title=notification_title,
@@ -5854,20 +5932,27 @@ async def create_comp_off_request(
     db.add(comp_off_request)
     await db.commit()
     
-    # Reload with eager loading of employee relationship
-    await db.refresh(comp_off_request, attribute_names=['employee'])
+    # Reload with eager loading of employee and department relationships
+    result = await db.execute(
+        select(CompOffRequest)
+        .where(CompOffRequest.id == comp_off_request.id)
+        .options(
+            selectinload(CompOffRequest.employee).selectinload(Employee.department)
+        )
+    )
+    comp_off_request = result.scalar_one()
     
     # Send notification to manager if employee created the request
-    if current_user.user_type == UserType.EMPLOYEE and employee and employee.department_id:
+    if current_user.user_type == UserType.EMPLOYEE and comp_off_request.employee and comp_off_request.employee.department_id:
         # Get manager for this employee's department
         manager_result = await db.execute(
-            select(Manager).filter(Manager.department_id == employee.department_id)
+            select(Manager).filter(Manager.department_id == comp_off_request.employee.department_id)
         )
         manager = manager_result.scalars().first()
         
         if manager and manager.user_id:
-            notification_title = f"📝 Comp-Off Request from {employee.first_name} {employee.last_name}"
-            notification_message = f"{employee.first_name} {employee.last_name} has requested comp-off for {comp_off_data.comp_off_date}."
+            notification_title = f"📝 Comp-Off Request from {comp_off_request.employee.first_name} {comp_off_request.employee.last_name}"
+            notification_message = f"{comp_off_request.employee.first_name} {comp_off_request.employee.last_name} has requested comp-off for {comp_off_data.comp_off_date}."
             await create_notification(
                 user_id=manager.user_id,
                 title=notification_title,
@@ -6690,8 +6775,13 @@ async def send_message(
     db.add(message)
     await db.commit()
     
-    # Refresh and eagerly load relationships
-    await db.refresh(message, ['sender', 'recipient'])
+    # Re-query with eager loading
+    result = await db.execute(
+        select(Message)
+        .where(Message.id == message.id)
+        .options(selectinload(Message.sender), selectinload(Message.recipient))
+    )
+    message = result.scalar_one()
     
     return message
 
@@ -8721,19 +8811,26 @@ async def create_overtime_request(
     
     db.add(ot_request)
     await db.commit()
-    await db.refresh(ot_request)
+    
+    # Reload with eager loading
+    result = await db.execute(
+        select(OvertimeRequest)
+        .where(OvertimeRequest.id == ot_request.id)
+        .options(selectinload(OvertimeRequest.employee).selectinload(Employee.department))
+    )
+    ot_request = result.scalar_one()
     
     # Send notification to manager
-    if employee and employee.department_id:
+    if ot_request.employee and ot_request.employee.department_id:
         # Get manager for this employee's department
         manager_result = await db.execute(
-            select(Manager).filter(Manager.department_id == employee.department_id)
+            select(Manager).filter(Manager.department_id == ot_request.employee.department_id)
         )
         manager = manager_result.scalars().first()
         
         if manager and manager.user_id:
-            notification_title = f"📝 Overtime Request from {employee.first_name} {employee.last_name}"
-            notification_message = f"{employee.first_name} {employee.last_name} has requested overtime for {request_data.request_date} ({request_data.request_hours} hours)."
+            notification_title = f"📝 Overtime Request from {ot_request.employee.first_name} {ot_request.employee.last_name}"
+            notification_message = f"{ot_request.employee.first_name} {ot_request.employee.last_name} has requested overtime for {request_data.request_date} ({request_data.request_hours} hours)."
             await create_notification(
                 user_id=manager.user_id,
                 title=notification_title,
@@ -8755,7 +8852,9 @@ async def list_overtime_requests(
     db: AsyncSession = Depends(get_db)
 ):
     """List overtime requests. Managers see pending requests, employees see their own"""
-    query = select(OvertimeRequest)
+    query = select(OvertimeRequest).options(
+        selectinload(OvertimeRequest.employee).selectinload(Employee.department)
+    )
     
     if current_user.user_type == UserType.EMPLOYEE:
         # Employees see their own requests
@@ -8801,7 +8900,9 @@ async def approve_overtime_request(
 ):
     """Manager approves an overtime request"""
     result = await db.execute(
-        select(OvertimeRequest).filter(OvertimeRequest.id == request_id)
+        select(OvertimeRequest)
+        .where(OvertimeRequest.id == request_id)
+        .options(selectinload(OvertimeRequest.employee).selectinload(Employee.department))
     )
     ot_request = result.scalars().first()
     
@@ -8809,13 +8910,8 @@ async def approve_overtime_request(
         raise HTTPException(status_code=404, detail="Overtime request not found")
     
     # Verify manager's authority over employee's department
-    emp_result = await db.execute(
-        select(Employee).filter(Employee.id == ot_request.employee_id)
-    )
-    employee = emp_result.scalars().first()
-    
     manager_dept = await get_manager_department(current_user, db)
-    if not manager_dept or employee.department_id != manager_dept:
+    if not manager_dept or ot_request.employee.department_id != manager_dept:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     ot_request.status = OvertimeStatus.APPROVED
@@ -8824,14 +8920,14 @@ async def approve_overtime_request(
     
     # Get employee user for notification
     emp_user_result = await db.execute(
-        select(User).filter(User.id == employee.user_id)
+        select(User).filter(User.id == ot_request.employee.user_id)
     )
     emp_user = emp_user_result.scalars().first()
     
     # Create notification for employee
     if emp_user:
         notification_title = f"✅ Overtime Request Approved"
-        notification_message = f"Your overtime request for {ot_request.overtime_date} ({ot_request.hours_requested} hours) has been approved."
+        notification_message = f"Your overtime request for {ot_request.request_date} ({ot_request.request_hours} hours) has been approved."
         await create_notification(
             user_id=emp_user.id,
             title=notification_title,
@@ -8842,7 +8938,14 @@ async def approve_overtime_request(
         )
     
     await db.commit()
-    await db.refresh(ot_request)
+    
+    # Reload with eager loading
+    result = await db.execute(
+        select(OvertimeRequest)
+        .where(OvertimeRequest.id == request_id)
+        .options(selectinload(OvertimeRequest.employee).selectinload(Employee.department))
+    )
+    ot_request = result.scalar_one()
     
     return ot_request
 
@@ -8856,7 +8959,9 @@ async def reject_overtime_request(
 ):
     """Manager rejects an overtime request"""
     result = await db.execute(
-        select(OvertimeRequest).filter(OvertimeRequest.id == request_id)
+        select(OvertimeRequest)
+        .where(OvertimeRequest.id == request_id)
+        .options(selectinload(OvertimeRequest.employee).selectinload(Employee.department))
     )
     ot_request = result.scalars().first()
     
@@ -8864,13 +8969,8 @@ async def reject_overtime_request(
         raise HTTPException(status_code=404, detail="Overtime request not found")
     
     # Verify manager's authority over employee's department
-    emp_result = await db.execute(
-        select(Employee).filter(Employee.id == ot_request.employee_id)
-    )
-    employee = emp_result.scalars().first()
-    
     manager_dept = await get_manager_department(current_user, db)
-    if not manager_dept or employee.department_id != manager_dept:
+    if not manager_dept or ot_request.employee.department_id != manager_dept:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     ot_request.status = OvertimeStatus.REJECTED
@@ -8879,14 +8979,14 @@ async def reject_overtime_request(
     
     # Get employee user for notification
     emp_user_result = await db.execute(
-        select(User).filter(User.id == employee.user_id)
+        select(User).filter(User.id == ot_request.employee.user_id)
     )
     emp_user = emp_user_result.scalars().first()
     
     # Create notification for employee
     if emp_user:
         notification_title = f"❌ Overtime Request Rejected"
-        notification_message = f"Your overtime request for {ot_request.overtime_date} ({ot_request.hours_requested} hours) has been rejected."
+        notification_message = f"Your overtime request for {ot_request.request_date} ({ot_request.request_hours} hours) has been rejected."
         if rejection_data.get("approval_notes"):
             notification_message += f" Reason: {rejection_data.get('approval_notes')}"
         await create_notification(
@@ -8899,7 +8999,14 @@ async def reject_overtime_request(
         )
     
     await db.commit()
-    await db.refresh(ot_request)
+    
+    # Re-query with eager loading
+    result = await db.execute(
+        select(OvertimeRequest)
+        .where(OvertimeRequest.id == request_id)
+        .options(selectinload(OvertimeRequest.employee).selectinload(Employee.department))
+    )
+    ot_request = result.scalar_one()
     
     return ot_request
 
