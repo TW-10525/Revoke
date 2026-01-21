@@ -932,6 +932,14 @@ const EmployeeAttendance = ({ onRoleSwitch }) => {
   const [downloading, setDownloading] = useState(false);
   const monthKeys = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
 
+  // Helper function to convert decimal hours to HH:MM format
+  const formatDecimalHours = (decimalHours) => {
+    if (!decimalHours) return '-';
+    const hours = Math.floor(decimalHours);
+    const minutes = Math.round((decimalHours - hours) * 60);
+    return `${hours}:${minutes.toString().padStart(2, '0')}`;
+  };
+
   useEffect(() => {
     loadAttendance();
   }, [currentMonth]);
@@ -1068,19 +1076,19 @@ const EmployeeAttendance = ({ onRoleSwitch }) => {
               <div>
                 <p className="text-xs text-gray-600 mb-1">{t('totalHoursWorked')}</p>
                 <p className="text-lg font-bold text-blue-600">
-                  {(attendance.reduce((sum, r) => sum + (r.worked_hours || 0), 0)).toFixed(2)}h
+                  {formatDecimalHours(attendance.reduce((sum, r) => sum + (r.worked_hours || 0), 0))}
                 </p>
               </div>
               <div>
                 <p className="text-xs text-gray-600 mb-1">{t('attendanceNightHours')}</p>
                 <p className="text-lg font-bold text-purple-600">
-                  {(attendance.reduce((sum, r) => sum + (r.night_hours || 0), 0)).toFixed(2)}h
+                  {formatDecimalHours(attendance.reduce((sum, r) => sum + (r.night_hours || 0), 0))}
                 </p>
               </div>
               <div>
                 <p className="text-xs text-gray-600 mb-1">{t('overtimeHoursLabel')}</p>
                 <p className="text-lg font-bold text-orange-600">
-                  {(attendance.reduce((sum, r) => sum + (r.overtime_hours || 0), 0)).toFixed(2)}h
+                  {formatDecimalHours(attendance.reduce((sum, r) => sum + (r.overtime_hours || 0), 0))}
                 </p>
               </div>
               <div>
@@ -1129,16 +1137,16 @@ const EmployeeAttendance = ({ onRoleSwitch }) => {
                         {record.out_time ? record.out_time : '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 font-medium">
-                        {record.worked_hours ? `${record.worked_hours.toFixed(2)}h` : '-'}
+                        {record.worked_hours ? formatDecimalHours(record.worked_hours) : '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-purple-600 font-medium">
-                        {record.night_hours ? `${record.night_hours.toFixed(2)}h` : '-'}
+                        {record.night_hours ? formatDecimalHours(record.night_hours) : '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         {record.break_minutes ? `${record.break_minutes}m` : '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-orange-600 font-medium">
-                        {record.overtime_hours ? `${record.overtime_hours.toFixed(2)}h` : '-'}
+                        {record.overtime_hours ? formatDecimalHours(record.overtime_hours) : '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${

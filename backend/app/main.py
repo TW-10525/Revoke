@@ -2641,8 +2641,11 @@ async def check_out(
                 break_minutes = 0
                 if check_in.schedule and check_in.schedule.role:
                     role_break = check_in.schedule.role.break_minutes or 0
-                    # Only apply break if total time is at least the break duration
-                    if total_minutes >= role_break:
+                    # Only apply break if total time is significantly longer than the break duration
+                    # For example: if break is 60 min, only apply it for shifts > 4 hours
+                    # This prevents short shifts from having the full break deducted
+                    min_time_for_break = role_break + 120  # Minimum 2 hours extra time needed to take break
+                    if total_minutes >= min_time_for_break:
                         break_minutes = role_break
                 
                 worked_minutes = max(0, total_minutes - break_minutes)
