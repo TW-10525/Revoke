@@ -233,6 +233,8 @@ const ManagerEmployees = ({ user, onRoleSwitch }) => {
       
       const employeeData = {
         ...formData,
+        // Send null instead of empty string to satisfy backend Optional[date]
+        hire_date: formData.hire_date ? formData.hire_date : null,
         department_id: departmentId
       };
       
@@ -290,7 +292,13 @@ const ManagerEmployees = ({ user, onRoleSwitch }) => {
         const detail = err.response.data.detail;
         // Handle Pydantic validation errors (array of error objects)
         if (Array.isArray(detail)) {
-          errorMsg = detail.map(e => `${e.loc?.join('.')}: ${e.msg}`).join('; ');
+          // Prefer a friendly message for hire_date
+          const hireDateIssue = detail.find(e => (e.loc || []).includes('hire_date'));
+          if (hireDateIssue) {
+            errorMsg = t('hireDateInvalid') || 'Hire date must be a valid date (YYYY-MM-DD). Leave it blank if unknown.';
+          } else {
+            errorMsg = detail.map(e => `${e.loc?.join('.')}: ${e.msg}`).join('; ');
+          }
         } else if (typeof detail === 'string') {
           errorMsg = detail;
         }

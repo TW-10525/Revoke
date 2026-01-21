@@ -1732,7 +1732,26 @@ async def create_employee(
         user_id = user.id
     
     await db.commit()
-    await db.refresh(employee)
+
+    # Reload with department eagerly loaded to avoid async lazy-load errors in response serialization
+    try:
+        result = await db.execute(
+            select(Employee)
+            .options(selectinload(Employee.department))
+            .filter(Employee.id == employee.id)
+        )
+        employee = result.scalar_one_or_none()
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="Employee created, but the server couldn't load department details for the response. Please refresh and try again."
+        )
+
+    if not employee:
+        raise HTTPException(
+            status_code=500,
+            detail="Employee created, but the server couldn't load the saved record for the response. Please refresh and try again."
+        )
     
     # Log the action
     try:
@@ -1861,8 +1880,27 @@ async def update_employee(
     employee.updated_at = datetime.utcnow()
     db.add(employee)
     await db.commit()
-    await db.refresh(employee)
-    
+
+    # Reload with department eagerly loaded to avoid async lazy-load errors in response serialization
+    try:
+        result = await db.execute(
+            select(Employee)
+            .options(selectinload(Employee.department))
+            .filter(Employee.id == employee.id)
+        )
+        employee = result.scalar_one_or_none()
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="Employee updated, but the server couldn't load department details for the response. Please refresh and try again."
+        )
+
+    if not employee:
+        raise HTTPException(
+            status_code=500,
+            detail="Employee updated, but the server couldn't load the saved record for the response. Please refresh and try again."
+        )
+
     return employee
 
 
@@ -8265,7 +8303,7 @@ async def approve_overtime_request(
     
     ot_request.status = OvertimeStatus.APPROVED
     ot_request.approved_at = datetime.utcnow()
-    ot_request.approval_notes = approval_data.get("approval_notes", "")
+    ot_request.manager_notes = approval_data.get("approval_notes", "")
     
     # Get employee user for notification
     emp_user_result = await db.execute(
@@ -8276,7 +8314,10 @@ async def approve_overtime_request(
     # Create notification for employee
     if emp_user:
         notification_title = f"✅ Overtime Request Approved"
-        notification_message = f"Your overtime request for {ot_request.overtime_date} ({ot_request.hours_requested} hours) has been approved."
+        notification_message = (
+            f"Your overtime request for {ot_request.request_date} "
+            f"({ot_request.request_hours} hours) has been approved."
+        )
         await create_notification(
             user_id=emp_user.id,
             title=notification_title,
@@ -8320,7 +8361,7 @@ async def reject_overtime_request(
     
     ot_request.status = OvertimeStatus.REJECTED
     ot_request.approved_at = datetime.utcnow()
-    ot_request.approval_notes = rejection_data.get("approval_notes", "")
+    ot_request.manager_notes = rejection_data.get("approval_notes", "")
     
     # Get employee user for notification
     emp_user_result = await db.execute(
@@ -8331,7 +8372,10 @@ async def reject_overtime_request(
     # Create notification for employee
     if emp_user:
         notification_title = f"❌ Overtime Request Rejected"
-        notification_message = f"Your overtime request for {ot_request.overtime_date} ({ot_request.hours_requested} hours) has been rejected."
+        notification_message = (
+            f"Your overtime request for {ot_request.request_date} "
+            f"({ot_request.request_hours} hours) has been rejected."
+        )
         if rejection_data.get("approval_notes"):
             notification_message += f" Reason: {rejection_data.get('approval_notes')}"
         await create_notification(
