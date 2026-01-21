@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.database import get_db
-from app.models import User, UserType
+from app.models import User, UserType, SubAdmin
 from app.schemas import TokenData
 
 # Password hashing - use argon2 due to bcrypt/passlib compatibility issues
@@ -80,14 +80,21 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
     return current_user
 
 
-async def require_admin(current_user: User = Depends(get_current_active_user)) -> User:
+async def require_admin(current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)) -> User:
     """Require admin or sub-admin role"""
-    if current_user.user_type not in [UserType.ADMIN, UserType.SUB_ADMIN]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
-        )
-    return current_user
+    # Check if user is admin
+    if current_user.user_type == UserType.ADMIN:
+        return current_user
+    
+    # Check if user has sub-admin status (manager or employee promoted to sub-admin)
+    result = await db.execute(select(SubAdmin).filter(SubAdmin.user_id == current_user.id, SubAdmin.is_active == True))
+    if result.scalars().first():
+        return current_user
+    
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Admin access required"
+    )
 
 
 async def require_admin_only(current_user: User = Depends(get_current_active_user)) -> User:
