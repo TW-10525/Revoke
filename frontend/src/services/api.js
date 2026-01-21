@@ -123,10 +123,23 @@ export const rejectLeave = (leaveId, reviewNotes) => {
   if (reviewNotes) body.review_notes = reviewNotes;
   return api.post(`/manager/reject-leave/${leaveId}`, body);
 };
+export const cancelLeaveRequest = (leaveId) => api.delete(`/leave-requests/${leaveId}`);
 
 // Leave Statistics
 export const getLeaveStatistics = () => api.get('/leave-statistics');
 export const getEmployeeLeaveStatistics = (employeeId) => api.get(`/leave-statistics/employee/${employeeId}`);
+
+// Overtime Requests
+export const createOvertimeRequest = (data) => api.post('/overtime-requests', data);
+export const listOvertimeRequests = (status = null) =>
+  api.get(status ? `/overtime-requests?status=${status}` : '/overtime-requests');
+export const approveOvertimeRequest = (requestId, approvalNotes = '') =>
+  api.put(`/overtime-requests/${requestId}/approve`, { approval_notes: approvalNotes });
+export const rejectOvertimeRequest = (requestId, approvalNotes = '') =>
+  api.put(`/overtime-requests/${requestId}/reject`, { approval_notes: approvalNotes });
+export const revokeOvertimeRequest = (requestId, approvalNotes = '') =>
+  api.put(`/overtime-requests/${requestId}/revoke`, { approval_notes: approvalNotes });
+export const cancelOvertimeRequest = (requestId) => api.delete(`/overtime-requests/${requestId}`);
 
 // Comp-Off Management
 export const createCompOffRequest = (compOffData) => api.post('/comp-off-requests', compOffData);
@@ -142,6 +155,7 @@ export const rejectCompOff = (compOffId, reviewNotes) => {
   const body = { review_notes: reviewNotes || '' };
   return api.post(`/manager/reject-comp-off/${compOffId}`, body);
 };
+export const cancelCompOffRequest = (compOffId) => api.delete(`/comp-off-requests/${compOffId}`);
 export const getCompOffStatistics = () => api.get('/comp-off-statistics');
 export const exportCompOffReport = (language = 'en') => api.get(`/comp-off/export/employee?language=${language}`, { responseType: 'blob' });
 export const exportLeaveCompOffReport = (employeeId, language = 'en') => api.get(`/manager/export-leave-compoff/${employeeId}?language=${language}`, { responseType: 'blob' });

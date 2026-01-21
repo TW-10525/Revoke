@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, CheckCircle, XCircle, Check, X } from 'lucide-react';
-import api from '../services/api';
+import api, { revokeOvertimeRequest } from '../services/api';
 import { useLanguage } from '../context/LanguageContext';
 import Header from './layout/Header';
 
@@ -76,6 +76,29 @@ const OvertimeApproval = ({ onRoleSwitch }) => {
       setMessage({
         type: 'error',
         text: error.response?.data?.detail || t('failedToRejectRequest')
+      });
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleRevoke = async (requestId) => {
+    if (!window.confirm(t('areYouSure') || 'Revoke this approved overtime?')) return;
+    try {
+      setProcessingId(requestId);
+      await revokeOvertimeRequest(requestId, approvalNotes || 'Revoked by manager');
+      setMessage({
+        type: 'success',
+        text: 'Overtime approval revoked'
+      });
+      setSelectedRequest(null);
+      setApprovalNotes('');
+      loadPendingRequests();
+    } catch (error) {
+      console.error('Error revoking request:', error);
+      setMessage({
+        type: 'error',
+        text: error.response?.data?.detail || 'Failed to revoke overtime'
       });
     } finally {
       setProcessingId(null);
@@ -194,6 +217,18 @@ const OvertimeApproval = ({ onRoleSwitch }) => {
                     </p>
                     <p className="text-sm text-gray-600"><strong>{t('reason')}:</strong> {request.reason}</p>
                   </div>
+
+                  {(request.status || '').toLowerCase() === 'approved' && (
+                    <div className="flex gap-2 mt-2">
+                      <button
+                        onClick={() => handleRevoke(request.id)}
+                        disabled={processingId === request.id}
+                        className="px-4 py-2 bg-red-100 text-red-700 rounded-lg font-semibold hover:bg-red-200 disabled:opacity-50"
+                      >
+                        {t('revoke') || 'Revoke'}
+                      </button>
+                    </div>
+                  )}
 
                   {selectedRequest?.id === request.id && isStatusPending(request.status) ? (
                     <div className="space-y-3 pt-3 border-t border-gray-200">
