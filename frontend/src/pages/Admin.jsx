@@ -34,7 +34,7 @@ import {
 
 // =============== ADMIN PAGES ===============
 
-const AdminDashboardHome = () => {
+const AdminDashboardHome = ({ user, onRoleSwitch }) => {
   const { t } = useLanguage();
   const [stats, setStats] = useState({
     totalUsers: 0,
@@ -54,19 +54,19 @@ const AdminDashboardHome = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [usersRes, deptRes, empRes] = await Promise.all([
-        listUsers(),
+      const [deptRes, empRes, managerRes] = await Promise.all([
         listDepartments(),
-        listEmployees(false)  // Get only active employees
+        listEmployees(false),  // Get only active employees
+        api.get('/managers')  // Get all managers
       ]);
-      const users = usersRes.data;
-      const managers = users.filter(u => u.user_type === 'manager' && u.is_active === true);
-      const employees = empRes.data;  // Use the filtered list from API
+      const departments = deptRes.data;
+      const employees = empRes.data;
+      const managers = managerRes.data;
       
       setStats({
-        totalUsers: users.filter(u => u.is_active === true).length,  // Count only active users
-        totalDepartments: deptRes.data.length,
-        totalManagers: managers.length,
+        totalUsers: departments.length + managers.length + employees.length,  // Count all active records
+        totalDepartments: departments.length,
+        totalManagers: managers.filter(m => m.is_active).length,
         totalEmployees: employees.length
       });
     } catch (error) {
@@ -93,7 +93,7 @@ const AdminDashboardHome = () => {
 
   return (
     <div>
-      <Header title={t('dashboard')} subtitle={t('recentActivity')} />
+      <Header title={t('dashboard')} subtitle={t('recentActivity')} user={user} onRoleSwitch={onRoleSwitch} />
       <div className="p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
           {statCards.map((stat, index) => (
@@ -117,7 +117,7 @@ const AdminDashboardHome = () => {
   );
 };
 
-const AdminManagers = () => {
+const AdminManagers = ({ user, onRoleSwitch }) => {
   const { t } = useLanguage();
   const [managers, setManagers] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -494,7 +494,7 @@ const AdminManagers = () => {
 
   return (
     <div>
-      <Header title={t('manageManagers')} subtitle={t('createAndManageDepartmentManagers')} />
+      <Header title={t('manageManagers')} subtitle={t('createAndManageDepartmentManagers')} user={user} onRoleSwitch={onRoleSwitch} />
       <div className="p-6 space-y-6">
         <Card
           title={t('manageManagers')}
@@ -952,7 +952,7 @@ const AdminManagers = () => {
 
 // =============== ADMIN DEPARTMENTS COMPONENT ===============
 
-const AdminDepartments = () => {
+const AdminDepartments = ({ user, onRoleSwitch }) => {
   const { t, language } = useLanguage();
   const monthKeys = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
   const [departments, setDepartments] = useState([]);
@@ -1241,7 +1241,7 @@ const AdminDepartments = () => {
 
   return (
     <div>
-      <Header title={t('manageDepartments')} subtitle={t('departmentManagement')} />
+      <Header title={t('manageDepartments')} subtitle={t('departmentManagement')} user={user} onRoleSwitch={onRoleSwitch} />
       <div className="min-h-screen bg-gray-50 p-8">
         <div className="max-w-7xl mx-auto">
           <div className="flex justify-between items-center mb-8">
@@ -1816,18 +1816,465 @@ const AdminDepartments = () => {
   );
 };
 
+// Sub-Admin Management
+const AdminSubAdmins = ({ user, onRoleSwitch }) => {
+  const { t } = useLanguage();
+  const [subAdmins, setSubAdmins] = useState([]);
+  const [managers, setManagers] = useState([]);
+  const [showModal, setShowModal] = useState(false);
+  const [selectedManager, setSelectedManager] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [subAdminsRes, managersRes] = await Promise.all([
+        api.get('/admin/sub-admins'),
+        api.get('/managers-for-sub-admin')
+      ]);
+      setSubAdmins(subAdminsRes.data);
+      setManagers(managersRes.data);
+    } catch (error) {
+      console.error('Failed to load sub-admins:', error);
+      setError('Failed to load data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateSubAdmin = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (!selectedManager) {
+      setError('Please select a manager');
+      return;
+    }
+
+    // Check if already a sub-admin (check by manager_id since we're adding managers)
+    if (subAdmins.some(sa => sa.manager_id === selectedManager.manager_id)) {
+      setError('This manager is already a sub-admin');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      // For managers, send user_id as employee_id, backend will look up manager by user_id
+      await api.post('/admin/sub-admins', {
+        employee_id: selectedManager.id,
+        is_manager: true
+      });
+      setShowModal(false);
+      setSelectedManager(null);
+      loadData();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to create sub-admin');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const confirmDelete = (subAdmin) => {
+    setDeleteTarget(subAdmin);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteSubAdmin = async () => {
+    setSubmitting(true);
+    try {
+      await api.delete(`/admin/sub-admins/${deleteTarget.id}`);
+      setShowDeleteConfirm(false);
+      setDeleteTarget(null);
+      loadData();
+    } catch (err) {
+      alert('Failed to delete sub-admin: ' + (err.response?.data?.detail || err.message));
+      setShowDeleteConfirm(false);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const filteredManagers = managers.filter(mgr =>
+    !subAdmins.some(sa => sa.manager_id === mgr.manager_id) &&
+    (mgr.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+     mgr.employee_id.includes(searchQuery))
+  );
+
+  const columns = [
+    { 
+      header: t('managerId'), 
+      accessor: 'employee_id', 
+      width: '120px', 
+      render: (row) => {
+        if (row.manager) {
+          return row.manager.manager_id || '-';
+        }
+        return row.employee?.employee_id || '-';
+      }
+    },
+    { 
+      header: t('fullName'), 
+      accessor: 'full_name', 
+      width: '180px', 
+      render: (row) => {
+        if (row.manager) {
+          return row.manager.user?.full_name || '-';
+        }
+        return row.employee ? `${row.employee.first_name} ${row.employee.last_name}` : '-';
+      }
+    },
+    { 
+      header: t('email'), 
+      accessor: 'email', 
+      width: '180px', 
+      render: (row) => {
+        if (row.manager) {
+          return row.manager.user?.email || '-';
+        }
+        return row.employee?.email || '-';
+      }
+    },
+    {
+      header: t('department'),
+      width: '150px',
+      render: (row) => {
+        if (row.manager) {
+          return row.manager.department ? row.manager.department.name : '-';
+        }
+        return row.employee?.department ? row.employee.department.name : '-';
+      }
+    },
+    {
+      header: t('createdAt'),
+      width: '150px',
+      render: (row) => format(new Date(row.created_at), 'MMM dd, yyyy')
+    },
+    {
+      header: t('actions'),
+      width: '100px',
+      render: (row) => (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => confirmDelete(row)}
+          className="flex items-center gap-1 text-red-600 hover:bg-red-50"
+        >
+          <Trash2 className="w-4 h-4" />
+          {t('remove')}
+        </Button>
+      )
+    }
+  ];
+
+  if (loading) return (
+    <div className="p-6">
+      <div className="flex items-center justify-center h-64">
+        <div className="text-xl text-gray-500">{t('loading')}</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <Header title={t('manageSubAdmins')} subtitle={t('createAndManageSubAdmins')} user={user} onRoleSwitch={onRoleSwitch} />
+      <div className="p-6 space-y-6">
+        <Card
+          title={t('manageSubAdmins')}
+          headerAction={
+            <Button onClick={() => setShowModal(true)} className="flex items-center gap-2">
+              <Plus className="w-4 h-4" />
+              {t('addSubAdmin')}
+            </Button>
+          }
+        >
+          {subAdmins.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-gray-500">{t('noSubAdminsYet')}</p>
+            </div>
+          ) : (
+            <Table columns={columns} data={subAdmins} />
+          )}
+        </Card>
+
+        <Modal
+          isOpen={showModal}
+          onClose={() => {
+            setShowModal(false);
+            setSelectedManager(null);
+            setError('');
+            setSearchQuery('');
+          }}
+          title={t('addSubAdmin')}
+        >
+          <form onSubmit={handleCreateSubAdmin} className="space-y-4">
+            {error && (
+              <div className="p-3 bg-red-100 text-red-700 rounded-lg flex items-center gap-2">
+                <AlertCircle className="w-4 h-4" />
+                {error}
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                {t('selectManager')} *
+              </label>
+              <input
+                type="text"
+                placeholder="Search manager by name or ID"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none mb-2"
+              />
+              <div className="max-h-40 overflow-y-auto border border-gray-300 rounded-lg">
+                {filteredManagers.length === 0 ? (
+                  <div className="p-3 text-gray-500 text-center">No managers available</div>
+                ) : (
+                  filteredManagers.map(mgr => (
+                    <button
+                      key={mgr.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedManager(mgr);
+                        setSearchQuery('');
+                      }}
+                      className={`w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-gray-200 last:border-b-0 ${
+                        selectedManager?.id === mgr.id ? 'bg-blue-100' : ''
+                      }`}
+                    >
+                      <div className="font-medium">{mgr.full_name}</div>
+                      <div className="text-sm text-gray-500">{mgr.employee_id} • {mgr.email}</div>
+                    </button>
+                  ))
+                )}
+              </div>
+              {selectedManager && (
+                <div className="mt-2 p-2 bg-blue-50 rounded border border-blue-200">
+                  <p className="text-sm font-medium">{selectedManager.full_name}</p>
+                  <p className="text-xs text-gray-600">{selectedManager.employee_id}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4 border-t">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setShowModal(false);
+                  setSelectedManager(null);
+                  setError('');
+                  setSearchQuery('');
+                }}
+                disabled={submitting}
+              >
+                {t('cancel')}
+              </Button>
+              <Button
+                type="submit"
+                disabled={submitting || !selectedManager}
+              >
+                {submitting ? t('processing') : t('create')}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+
+        <Modal
+          isOpen={showDeleteConfirm}
+          onClose={() => {
+            setShowDeleteConfirm(false);
+            setDeleteTarget(null);
+          }}
+          title={t('confirmDelete')}
+        >
+          <div className="space-y-4">
+            <p className="text-gray-700">
+              {t('areYouSure')} {deleteTarget?.employee?.first_name} {deleteTarget?.employee?.last_name} {t('asSubAdmin')}?
+            </p>
+            <div className="flex justify-end gap-2 pt-4 border-t">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setDeleteTarget(null);
+                }}
+                disabled={submitting}
+              >
+                {t('cancel')}
+              </Button>
+              <Button
+                variant="danger"
+                onClick={handleDeleteSubAdmin}
+                disabled={submitting}
+              >
+                {submitting ? t('deleting') : t('delete')}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      </div>
+    </div>
+  );
+};
+
+const AdminAuditLogs = ({ user }) => {
+  const { t } = useLanguage();
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [filters, setFilters] = useState({
+    action: '',
+    entity_type: '',
+    user_id: ''
+  });
+
+  useEffect(() => {
+    loadAuditLogs();
+  }, [filters]);
+
+  const loadAuditLogs = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const params = new URLSearchParams();
+      if (filters.action) params.append('action', filters.action);
+      if (filters.entity_type) params.append('entity_type', filters.entity_type);
+      if (filters.user_id) params.append('user_id', filters.user_id);
+      params.append('limit', '100');
+
+      const response = await api.get(`/admin/audit-logs?${params.toString()}`);
+      setLogs(response.data);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to load audit logs');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const columns = [
+    { 
+      header: t('timestamp'), 
+      width: '180px',
+      render: (row) => {
+        try {
+          return row.created_at ? format(new Date(row.created_at), 'yyyy-MM-dd HH:mm:ss') : '-';
+        } catch (e) {
+          return row.created_at || '-';
+        }
+      }
+    },
+    { 
+      header: t('user'), 
+      width: '150px',
+      render: (row) => row.user?.full_name || '-' 
+    },
+    { 
+      header: t('action'), 
+      width: '150px',
+      render: (row) => row.action || '-' 
+    },
+    { 
+      header: t('entityType'), 
+      width: '120px',
+      render: (row) => row.entity_type || '-' 
+    },
+    { 
+      header: t('description'), 
+      width: '250px',
+      render: (row) => row.description || '-' 
+    },
+    { 
+      header: t('status'), 
+      width: '100px',
+      render: (row) => (
+        <span className={`px-2 py-1 rounded text-xs font-semibold ${row.status === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+          {row.status || '-'}
+        </span>
+      )
+    }
+  ];
+
+  return (
+    <div className="p-8 space-y-6">
+      <div className="flex justify-between items-center">
+        <h1 className="text-3xl font-bold text-gray-900">{t('auditLogs')}</h1>
+      </div>
+
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">{error}</div>}
+
+      <Card>
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">{t('action')}</label>
+              <input
+                type="text"
+                value={filters.action}
+                onChange={(e) => setFilters({...filters, action: e.target.value})}
+                placeholder="e.g., CREATE_EMPLOYEE"
+                className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">{t('entityType')}</label>
+              <input
+                type="text"
+                value={filters.entity_type}
+                onChange={(e) => setFilters({...filters, entity_type: e.target.value})}
+                placeholder="e.g., EMPLOYEE"
+                className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">{t('userId')}</label>
+              <input
+                type="number"
+                value={filters.user_id}
+                onChange={(e) => setFilters({...filters, user_id: e.target.value})}
+                placeholder="User ID"
+                className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+              />
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <Card>
+        {loading ? (
+          <div className="text-center py-8">{t('loading')}...</div>
+        ) : logs.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">{t('noData')}</div>
+        ) : (
+          <Table columns={columns} data={logs} />
+        )}
+      </Card>
+    </div>
+  );
+};
+
 // =============== MAIN ADMIN DASHBOARD COMPONENT ===============
 
-const AdminDashboard = ({ user, onLogout }) => {
+const AdminDashboard = ({ user, onLogout, onRoleSwitch }) => {
   return (
     <div className="flex h-screen bg-gray-100">
       <Sidebar user={user} onLogout={onLogout} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto">
           <Routes>
-            <Route path="/dashboard" element={<AdminDashboardHome />} />
-            <Route path="/managers" element={<AdminManagers />} />
-            <Route path="/departments" element={<AdminDepartments />} />
+            <Route path="/dashboard" element={<AdminDashboardHome user={user} onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/managers" element={<AdminManagers user={user} onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/departments" element={<AdminDepartments user={user} onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/sub-admins" element={<AdminSubAdmins user={user} onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/audit-logs" element={<AdminAuditLogs user={user} />} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>

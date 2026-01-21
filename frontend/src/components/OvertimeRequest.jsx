@@ -4,7 +4,7 @@ import api from '../services/api';
 import { useLanguage } from '../context/LanguageContext';
 import Header from './layout/Header';
 
-const OvertimeRequest = () => {
+const OvertimeRequest = ({ onRoleSwitch }) => {
   const { t } = useLanguage();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -148,7 +148,7 @@ const OvertimeRequest = () => {
 
   return (
     <>
-      <Header title={t('overtimeRequests')} subtitle={t('submitOvertimeRequest')} />
+      <Header title={t('overtimeRequests')} subtitle={t('submitOvertimeRequest')} onRoleSwitch={onRoleSwitch} />
       <div className="p-6">
         <div className="space-y-6">
           {/* Header */}

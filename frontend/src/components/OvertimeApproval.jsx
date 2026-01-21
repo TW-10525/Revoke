@@ -4,7 +4,7 @@ import api from '../services/api';
 import { useLanguage } from '../context/LanguageContext';
 import Header from './layout/Header';
 
-const OvertimeApproval = () => {
+const OvertimeApproval = ({ onRoleSwitch }) => {
   const { t } = useLanguage();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -93,7 +93,7 @@ const OvertimeApproval = () => {
 
   return (
     <>
-      <Header title={t('overtimeApprovals')} subtitle={t('reviewApproveOvertimeRequests')} />
+      <Header title={t('overtimeApprovals')} subtitle={t('reviewApproveOvertimeRequests')} onRoleSwitch={onRoleSwitch} />
       <div className="p-6">
         <div className="space-y-6">
           {/* Status Filter */}

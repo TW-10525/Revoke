@@ -28,13 +28,14 @@ from app.models import (
     CheckInOut, Message, Notification,
     UserType, LeaveStatus, Attendance, Unavailability, Shift,
     OvertimeTracking, OvertimeRequest, OvertimeWorked, OvertimeStatus,
-    CompOffRequest, CompOffTracking, CompOffDetail
+    CompOffRequest, CompOffTracking, CompOffDetail, SubAdmin, AuditLog
 )
 from app.schemas import *
 from app.auth import (
     get_password_hash, verify_password, create_access_token,
-    get_current_active_user, require_admin, require_manager, require_employee
+    get_current_active_user, require_admin, require_admin_only, require_manager, require_employee
 )
+from app.audit import log_action, get_audit_logs
 from app.schedule_generator import ShiftScheduleGenerator
 from app.holidays_jp import jp_calendar, is_japanese_holiday, get_japanese_holiday_name
 from app.excel_translations import get_excel_translation, get_headers_translated
@@ -85,10 +86,8 @@ async def upgrade_database():
                     ADD COLUMN IF NOT EXISTS expired_days INTEGER DEFAULT 0
                 """))
                 print("✓ Added earned_date and expired_days columns to comp_off_tracking")
-                await conn.commit()
             except Exception as e:
-                print(f"Error adding columns: {e}")
-                await conn.rollback()
+                print(f"Note: {e}")
 
             try:
                 # Create comp_off_details table
@@ -111,10 +110,8 @@ async def upgrade_database():
                     )
                 """))
                 print("✓ Created comp_off_details table")
-                await conn.commit()
             except Exception as e:
-                print(f"Error creating table: {e}")
-                await conn.rollback()
+                print(f"Note: {e}")
 
             # Create indexes for performance
             try:
@@ -132,11 +129,48 @@ async def upgrade_database():
                     ON comp_off_details(type)
                 """))
                 print("✓ Created indexes for comp_off_details")
-                await conn.commit()
             except Exception as e:
                 print(f"Note: {e}")
 
-            print("✓ Database migration completed successfully!")
+            # Create sub_admins table
+            try:
+                print("Creating sub_admins table...")
+                await conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS sub_admins (
+                        id SERIAL PRIMARY KEY,
+                        employee_id INTEGER UNIQUE,
+                        manager_id INTEGER UNIQUE,
+                        user_id INTEGER NOT NULL UNIQUE,
+                        created_by INTEGER NOT NULL,
+                        is_active BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        CONSTRAINT fk_subadmin_employee FOREIGN KEY (employee_id) 
+                            REFERENCES employees(id) ON DELETE CASCADE,
+                        CONSTRAINT fk_subadmin_manager FOREIGN KEY (manager_id) 
+                            REFERENCES managers(id) ON DELETE CASCADE,
+                        CONSTRAINT fk_subadmin_user FOREIGN KEY (user_id) 
+                            REFERENCES users(id) ON DELETE CASCADE,
+                        CONSTRAINT fk_subadmin_creator FOREIGN KEY (created_by) 
+                            REFERENCES users(id) ON DELETE SET NULL
+                    )
+                """))
+                print("✓ Created sub_admins table")
+            except Exception as e:
+                print(f"Note: sub_admins table - {e}")
+                # Try to add manager_id column if table exists
+                try:
+                    await conn.execute(text("""
+                        ALTER TABLE sub_admins
+                        ADD COLUMN IF NOT EXISTS manager_id INTEGER UNIQUE
+                    """))
+                    await conn.execute(text("""
+                        ALTER TABLE sub_admins
+                        ALTER COLUMN employee_id DROP NOT NULL
+                    """))
+                    print("✓ Updated sub_admins table - added manager_id, made employee_id nullable")
+                except Exception as alter_e:
+                    print(f"Note: Altering sub_admins - {alter_e}")
     except Exception as e:
         print(f"Database upgrade error: {e}")
 
@@ -243,6 +277,95 @@ async def add_employee_id_column():
         print(f"Employee ID migration error: {e}")
 
 
+async def upgrade_sub_admin_and_audit():
+    """Run database migrations for sub-admin and audit log tables"""
+    from app.database import engine
+    from sqlalchemy import text
+    
+    try:
+        async with engine.begin() as conn:
+            # Create sub_admins table if it doesn't exist
+            try:
+                print("Creating sub_admins table...")
+                await conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS sub_admins (
+                        id SERIAL PRIMARY KEY,
+                        employee_id INTEGER UNIQUE,
+                        manager_id INTEGER UNIQUE,
+                        user_id INTEGER NOT NULL UNIQUE,
+                        created_by INTEGER NOT NULL,
+                        is_active BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        CONSTRAINT fk_subadmin_employee FOREIGN KEY (employee_id) 
+                            REFERENCES employees(id) ON DELETE CASCADE,
+                        CONSTRAINT fk_subadmin_manager FOREIGN KEY (manager_id) 
+                            REFERENCES managers(id) ON DELETE CASCADE,
+                        CONSTRAINT fk_subadmin_user FOREIGN KEY (user_id) 
+                            REFERENCES users(id) ON DELETE CASCADE,
+                        CONSTRAINT fk_subadmin_creator FOREIGN KEY (created_by) 
+                            REFERENCES users(id) ON DELETE SET NULL
+                    )
+                """))
+                print("✓ Created sub_admins table")
+            except Exception as e:
+                print(f"Note: sub_admins table creation - {e}")
+                # Try to alter table if it already exists
+                try:
+                    await conn.execute(text("""
+                        ALTER TABLE sub_admins
+                        ADD COLUMN IF NOT EXISTS manager_id INTEGER UNIQUE
+                    """))
+                    await conn.execute(text("""
+                        ALTER TABLE sub_admins
+                        ALTER COLUMN employee_id DROP NOT NULL
+                    """))
+                    print("✓ Updated sub_admins table - added manager_id, made employee_id nullable")
+                except Exception as alter_e:
+                    print(f"Note: sub_admins table alteration - {alter_e}")
+            
+            # Create audit_logs table if it doesn't exist
+            try:
+                print("Creating audit_logs table...")
+                await conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS audit_logs (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER,
+                        action VARCHAR(100) NOT NULL,
+                        entity_type VARCHAR(50) NOT NULL,
+                        entity_id INTEGER,
+                        description TEXT,
+                        old_values JSON,
+                        new_values JSON,
+                        ip_address VARCHAR(45),
+                        user_agent VARCHAR(500),
+                        status VARCHAR(20) DEFAULT 'success',
+                        error_message TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        CONSTRAINT fk_auditlog_user FOREIGN KEY (user_id) 
+                            REFERENCES users(id) ON DELETE SET NULL
+                    )
+                """))
+                print("✓ Created audit_logs table")
+                
+                # Create indexes for better query performance
+                await conn.execute(text("""
+                    CREATE INDEX IF NOT EXISTS idx_auditlog_user_id ON audit_logs(user_id)
+                """))
+                await conn.execute(text("""
+                    CREATE INDEX IF NOT EXISTS idx_auditlog_action ON audit_logs(action)
+                """))
+                await conn.execute(text("""
+                    CREATE INDEX IF NOT EXISTS idx_auditlog_entity_type ON audit_logs(entity_type)
+                """))
+                await conn.execute(text("""
+                    CREATE INDEX IF NOT EXISTS idx_auditlog_created_at ON audit_logs(created_at)
+                """))
+                print("✓ Created audit_logs indexes")
+            except Exception as e:
+                print(f"Note: audit_logs table migration - {e}")
+    except Exception as e:
+        print(f"Sub-admin and audit migration error: {e}")
 
 
 @app.on_event("startup")
@@ -256,6 +379,7 @@ async def startup_event():
     await add_employee_id_column()
     await add_manager_id_column()
     await upgrade_database()
+    await upgrade_sub_admin_and_audit()
     
     print("="*60)
     print("All migrations completed!")
@@ -495,12 +619,27 @@ async def root():
 @app.post("/token", response_model=Token)
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    request: Request = None
 ):
     result = await db.execute(select(User).filter(User.username == form_data.username))
     user = result.scalar_one_or_none()
     
     if not user or not verify_password(form_data.password, user.hashed_password):
+        # Log failed login attempt
+        try:
+            await log_action(
+                db=db,
+                user_id=None,
+                action="LOGIN_FAILED",
+                entity_type="USER",
+                description=f"Failed login attempt for username: {form_data.username}",
+                ip_address=request.client.host if request else None,
+                status="failed"
+            )
+        except:
+            pass
+        
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -511,11 +650,40 @@ async def login(
     user.last_login = datetime.utcnow()
     await db.commit()
     
-    # Get manager info if user is a manager
+    # Check if user has multiple roles
+    available_roles = []
+    
+    # Add current user_type as default role
+    if user.user_type == UserType.ADMIN:
+        available_roles.append("admin")
+    elif user.user_type == UserType.MANAGER:
+        available_roles.append("manager")
+    elif user.user_type == UserType.EMPLOYEE:
+        available_roles.append("employee")
+    elif user.user_type == UserType.SUB_ADMIN:
+        available_roles.append("sub_admin")
+    
+    # Check if user is also a manager (even if they're not user_type==MANAGER)
+    manager_result = await db.execute(select(Manager).filter(Manager.user_id == user.id))
+    if manager_result.scalar_one_or_none() and "manager" not in available_roles:
+        available_roles.append("manager")
+    
+    # Check if user is also a sub-admin (even if they're not user_type==SUB_ADMIN)
+    sub_admin_result = await db.execute(select(SubAdmin).filter(SubAdmin.user_id == user.id, SubAdmin.is_active == True))
+    if sub_admin_result.scalar_one_or_none() and "sub_admin" not in available_roles:
+        available_roles.append("sub_admin")
+    
+    # Determine selected role (default to current user_type or first available role)
+    selected_role = user.user_type.value
+    if len(available_roles) > 1:
+        # If user has multiple roles, they will be prompted on frontend to choose
+        selected_role = None
+    
+    # Get manager info if applicable
     manager_department_id = None
-    if user.user_type == UserType.MANAGER:
-        result = await db.execute(select(Manager).filter(Manager.user_id == user.id))
-        manager = result.scalar_one_or_none()
+    if selected_role == "manager" or user.user_type == UserType.MANAGER:
+        manager_res = await db.execute(select(Manager).filter(Manager.user_id == user.id))
+        manager = manager_res.scalar_one_or_none()
         if manager:
             manager_department_id = manager.department_id
     
@@ -524,6 +692,20 @@ async def login(
         data={"sub": user.username},
         expires_delta=access_token_expires
     )
+    
+    # Log successful login
+    try:
+        await log_action(
+            db=db,
+            user_id=user.id,
+            action="LOGIN",
+            entity_type="USER",
+            description=f"User {user.username} logged in",
+            ip_address=request.client.host if request else None,
+            status="success"
+        )
+    except:
+        pass
     
     return {
         "access_token": access_token,
@@ -534,6 +716,8 @@ async def login(
             "email": user.email,
             "full_name": user.full_name,
             "user_type": user.user_type,
+            "selected_role": selected_role,
+            "available_roles": available_roles,
             "manager_department_id": manager_department_id
         }
     }
@@ -632,12 +816,251 @@ async def delete_user(
     return {"message": f"User {user.username} deleted successfully"}
 
 
-# Departments
+# Sub-Admin Management
+@app.post("/admin/sub-admins", response_model=SubAdminResponse)
+async def create_sub_admin(
+    sub_admin_data: SubAdminCreate,
+    current_user: User = Depends(require_admin_only),
+    db: AsyncSession = Depends(get_db),
+    request: Request = None
+):
+    """Create a sub-admin from an existing employee or manager"""
+    
+    manager = None
+    employee = None
+    emp_user = None
+    display_name = None
+    
+    # If is_manager flag is set, prioritize manager lookup
+    if sub_admin_data.is_manager:
+        # Try to find as manager (employee_id field contains user_id for managers)
+        # Eagerly load the user relationship to avoid lazy loading issues
+        mgr_result = await db.execute(
+            select(Manager)
+            .filter(Manager.user_id == sub_admin_data.employee_id)
+            .options(selectinload(Manager.user))
+        )
+        manager = mgr_result.scalar_one_or_none()
+        
+        if not manager:
+            raise HTTPException(status_code=404, detail="Manager not found")
+        
+        emp_user = manager.user
+        if not emp_user:
+            raise HTTPException(status_code=400, detail="Manager user account not found")
+        
+        display_name = emp_user.full_name if emp_user.full_name else f"Manager {manager.manager_id}"
+    else:
+        # Try to get as an employee
+        emp_result = await db.execute(select(Employee).filter(Employee.id == sub_admin_data.employee_id))
+        employee = emp_result.scalar_one_or_none()
+        
+        if not employee:
+            raise HTTPException(status_code=404, detail="Employee not found")
+        
+        if not employee.user_id:
+            raise HTTPException(status_code=400, detail="Employee does not have a user account")
+        
+        user_result = await db.execute(select(User).filter(User.id == employee.user_id))
+        emp_user = user_result.scalar_one_or_none()
+        
+        if not emp_user:
+            raise HTTPException(status_code=400, detail="Employee user account not found")
+        
+        display_name = f"{employee.first_name} {employee.last_name}"
+    
+    # Check if already a sub-admin
+    existing = await db.execute(select(SubAdmin).filter(SubAdmin.user_id == emp_user.id))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="This user is already a sub-admin")
+    
+    # Update user type to SUB_ADMIN
+    emp_user.user_type = UserType.SUB_ADMIN
+    
+    # Create sub-admin record
+    sub_admin = SubAdmin(
+        employee_id=employee.id if employee else None,
+        manager_id=manager.id if manager else None,
+        user_id=emp_user.id,
+        created_by=current_user.id,
+        is_active=True
+    )
+    
+    db.add(sub_admin)
+    await db.flush()
+    
+    # Re-fetch with eager loading before commit
+    sub_admin_id = sub_admin.id
+    result = await db.execute(
+        select(SubAdmin)
+        .where(SubAdmin.id == sub_admin_id)
+        .options(
+            selectinload(SubAdmin.employee).selectinload(Employee.department),
+            selectinload(SubAdmin.manager).selectinload(Manager.user),
+            selectinload(SubAdmin.manager).selectinload(Manager.department)
+        )
+    )
+    sub_admin = result.scalar_one_or_none()
+    
+    # Log the action before commit
+    try:
+        await log_action(
+            db=db,
+            user_id=current_user.id,
+            action="CREATE_SUB_ADMIN",
+            entity_type="SUB_ADMIN",
+            entity_id=sub_admin.id,
+            description=f"Created sub-admin for: {display_name}",
+            new_values={"employee_id": sub_admin.employee_id, "manager_id": sub_admin.manager_id, "user_id": emp_user.id},
+            ip_address=request.client.host if request else None,
+            status="success"
+        )
+    except Exception as log_err:
+        print(f"Warning: Failed to log action: {log_err}")
+    
+    # Commit after everything
+    await db.commit()
+    
+    return sub_admin
+
+
+@app.get("/admin/sub-admins", response_model=List[SubAdminResponse])
+async def list_sub_admins(
+    active_only: bool = True,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """List all sub-admins (both employee and manager sub-admins)"""
+    
+    filters = []
+    if active_only:
+        filters.append(SubAdmin.is_active == True)
+    
+    # Eagerly load both employee and manager with their relationships
+    query = select(SubAdmin).options(
+        selectinload(SubAdmin.employee).selectinload(Employee.department),
+        selectinload(SubAdmin.manager).selectinload(Manager.user),
+        selectinload(SubAdmin.manager).selectinload(Manager.department)
+    )
+    if filters:
+        query = query.filter(*filters)
+    
+    result = await db.execute(query)
+    sub_admins = result.scalars().all()
+    
+    return sub_admins
+
+
+@app.delete("/admin/sub-admins/{sub_admin_id}")
+async def delete_sub_admin(
+    sub_admin_id: int,
+    current_user: User = Depends(require_admin_only),
+    db: AsyncSession = Depends(get_db),
+    request: Request = None
+):
+    """Delete/deactivate a sub-admin (employee or manager)"""
+    
+    result = await db.execute(select(SubAdmin).filter(SubAdmin.id == sub_admin_id))
+    sub_admin = result.scalar_one_or_none()
+    
+    if not sub_admin:
+        raise HTTPException(status_code=404, detail="Sub-admin not found")
+    
+    # Get either the employee or manager with eager loading
+    employee = None
+    manager = None
+    display_name = "Unknown"
+    
+    if sub_admin.employee_id:
+        emp_result = await db.execute(
+            select(Employee)
+            .filter(Employee.id == sub_admin.employee_id)
+            .options(selectinload(Employee.department))
+        )
+        employee = emp_result.scalar_one_or_none()
+        if employee:
+            display_name = f"{employee.first_name} {employee.last_name}"
+    elif sub_admin.manager_id:
+        mgr_result = await db.execute(
+            select(Manager)
+            .filter(Manager.id == sub_admin.manager_id)
+            .options(selectinload(Manager.user), selectinload(Manager.department))
+        )
+        manager = mgr_result.scalar_one_or_none()
+        if manager and manager.user:
+            display_name = manager.user.full_name
+    
+    # Get the user
+    user_result = await db.execute(select(User).filter(User.id == sub_admin.user_id))
+    emp_user = user_result.scalar_one_or_none()
+    
+    # Deactivate sub-admin
+    sub_admin.is_active = False
+    sub_admin.updated_at = datetime.utcnow()
+    
+    # Revert user type back to MANAGER or EMPLOYEE
+    if emp_user:
+        if manager:
+            emp_user.user_type = UserType.MANAGER
+        else:
+            emp_user.user_type = UserType.EMPLOYEE
+    
+    # Flush changes to DB without committing
+    await db.flush()
+    
+    # Log the action
+    try:
+        await log_action(
+            db=db,
+            user_id=current_user.id,
+            action="DELETE_SUB_ADMIN",
+            entity_type="SUB_ADMIN",
+            entity_id=sub_admin_id,
+            description=f"Deleted sub-admin for: {display_name}",
+            ip_address=request.client.host if request else None,
+            status="success"
+        )
+    except:
+        pass
+    
+    # Now commit the transaction
+    await db.commit()
+    
+    return {"message": f"Sub-admin {sub_admin_id} deactivated successfully"}
+
+
+# Audit Logs
+@app.get("/admin/audit-logs", response_model=List[AuditLogResponse])
+async def get_audit_logs_endpoint(
+    action: Optional[str] = None,
+    entity_type: Optional[str] = None,
+    user_id: Optional[int] = None,
+    limit: int = 100,
+    offset: int = 0,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get audit logs with optional filtering"""
+    
+    logs, total = await get_audit_logs(
+        db=db,
+        action=action,
+        entity_type=entity_type,
+        user_id=user_id,
+        limit=limit,
+        offset=offset
+    )
+    
+    return logs
+
+
+
 @app.post("/departments", response_model=DepartmentResponse)
 async def create_department(
     dept_data: DepartmentCreate,
     current_user: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    request: Request = None
 ):
     # Use provided dept_id or auto-generate if not provided
     dept_id_to_use = dept_data.dept_id.strip() if hasattr(dept_data, 'dept_id') and dept_data.dept_id else None
@@ -661,9 +1084,26 @@ async def create_department(
     )
     
     db.add(department)
-    await db.commit()
+    await db.flush()
     await db.refresh(department)
     
+    # Log the action
+    try:
+        await log_action(
+            db=db,
+            user_id=current_user.id,
+            action="CREATE_DEPARTMENT",
+            entity_type="DEPARTMENT",
+            entity_id=department.id,
+            description=f"Created department: {department.name} (ID: {department.dept_id})",
+            new_values={"name": department.name, "dept_id": department.dept_id},
+            ip_address=request.client.host if request else None,
+            status="success"
+        )
+    except Exception as log_err:
+        print(f"Warning: Failed to log action: {log_err}")
+    
+    await db.commit()
     return department
 
 
@@ -672,7 +1112,8 @@ async def update_department(
     department_id: int,
     dept_data: DepartmentCreate,
     current_user: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    request: Request = None
 ):
     result = await db.execute(select(Department).filter(Department.id == department_id))
     department = result.scalar_one_or_none()
@@ -680,9 +1121,30 @@ async def update_department(
     if not department:
         raise HTTPException(status_code=404, detail="Department not found")
     
+    old_values = {"name": department.name, "description": department.description}
+    
     department.name = dept_data.name
     department.description = dept_data.description
     department.updated_at = datetime.utcnow()
+    
+    await db.flush()
+    
+    # Log the action
+    try:
+        await log_action(
+            db=db,
+            user_id=current_user.id,
+            action="UPDATE_DEPARTMENT",
+            entity_type="DEPARTMENT",
+            entity_id=department.id,
+            description=f"Updated department: {department.name}",
+            old_values=old_values,
+            new_values={"name": department.name, "description": department.description},
+            ip_address=request.client.host if request else None,
+            status="success"
+        )
+    except Exception as log_err:
+        print(f"Warning: Failed to log action: {log_err}")
     
     await db.commit()
     await db.refresh(department)
@@ -1031,6 +1493,46 @@ async def list_managers(
     return response
 
 
+@app.get("/managers-for-sub-admin")
+async def list_managers_for_sub_admin(
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get all managers formatted for sub-admin selection with employee_id format"""
+    result = await db.execute(
+        select(Manager)
+        .filter(Manager.is_active == True)
+        .options(
+            selectinload(Manager.user),
+            selectinload(Manager.department)
+        )
+    )
+    managers = result.scalars().all()
+    
+    # Format managers like employees for sub-admin selection
+    response = []
+    for manager in managers:
+        user = manager.user
+        if user:
+            response.append({
+                'id': manager.user_id,  # Use user_id so we can identify as manager's employee record
+                'employee_id': f'MGR{manager.manager_id}',  # Format: MGRxxx for managers, EMPxxxxx for employees
+                'first_name': user.full_name.split()[0] if user.full_name else '',
+                'last_name': user.full_name.split()[-1] if user.full_name and len(user.full_name.split()) > 1 else '',
+                'full_name': user.full_name,
+                'email': user.email,
+                'department_id': manager.department_id,
+                'department': {
+                    'id': manager.department.id,
+                    'name': manager.department.name
+                } if manager.department else None,
+                'is_manager': True,
+                'manager_id': manager.id
+            })
+
+    return response
+
+
 @app.get("/managers/me")
 async def get_current_manager(
     current_user: User = Depends(get_current_active_user),
@@ -1165,7 +1667,8 @@ async def delete_manager(
 async def create_employee(
     emp_data: EmployeeCreate,
     current_user: User = Depends(require_manager),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    request: Request = None
 ):
     # Managers can only create in their department
     # Get the manager's department from Manager table
@@ -1204,6 +1707,7 @@ async def create_employee(
     db.add(employee)
     await db.flush()  # Get the employee ID
     
+    user_id = None
     # If password provided, create a user account
     if hasattr(emp_data, 'password') and emp_data.password:
         # Check if username already exists (use email as username)
@@ -1225,9 +1729,32 @@ async def create_employee(
         
         # Link employee to user
         employee.user_id = user.id
+        user_id = user.id
     
     await db.commit()
     await db.refresh(employee)
+    
+    # Log the action
+    try:
+        await log_action(
+            db=db,
+            user_id=current_user.id,
+            action="CREATE_EMPLOYEE",
+            entity_type="EMPLOYEE",
+            entity_id=employee.id,
+            description=f"Created employee: {employee.first_name} {employee.last_name} (ID: {new_employee_id})",
+            new_values={
+                "employee_id": new_employee_id,
+                "first_name": employee.first_name,
+                "last_name": employee.last_name,
+                "email": employee.email,
+                "department_id": employee.department_id
+            },
+            ip_address=request.client.host if request else None,
+            status="success"
+        )
+    except:
+        pass
     
     return employee
 
@@ -1240,11 +1767,14 @@ async def list_employees(
 ):
     filters = []
 
-    if current_user.user_type == UserType.ADMIN:
-        # Admin sees all employees in their departments
+    if current_user.user_type == UserType.ADMIN or current_user.user_type == UserType.SUB_ADMIN:
+        # Admin and Sub-Admin see all employees
         if not show_inactive:
             filters.append(Employee.is_active == True)
-        result = await db.execute(select(Employee).filter(*filters) if filters else select(Employee))
+        query = select(Employee).options(selectinload(Employee.department))
+        if filters:
+            query = query.filter(*filters)
+        result = await db.execute(query)
     elif current_user.user_type == UserType.MANAGER:
         # Get manager's department from Manager table
         manager_result = await db.execute(select(Manager).filter(Manager.user_id == current_user.id))
@@ -1254,7 +1784,10 @@ async def list_employees(
             filters.append(Employee.department_id == manager.department_id)
             if not show_inactive:
                 filters.append(Employee.is_active == True)
-            result = await db.execute(select(Employee).filter(*filters))
+            query = select(Employee).options(selectinload(Employee.department))
+            if filters:
+                query = query.filter(*filters)
+            result = await db.execute(query)
         else:
             # No manager record, return empty list
             result = await db.execute(
@@ -1264,7 +1797,10 @@ async def list_employees(
         if not show_inactive:
             filters.append(Employee.is_active == True)
         filters.append(Employee.user_id == current_user.id)
-        result = await db.execute(select(Employee).filter(*filters))
+        query = select(Employee).options(selectinload(Employee.department))
+        if filters:
+            query = query.filter(*filters)
+        result = await db.execute(query)
 
     return result.scalars().all()
 
@@ -1698,7 +2234,7 @@ async def check_in(
             select(CheckInOut)
             .where(CheckInOut.id == check_in.id)
             .options(
-                selectinload(CheckInOut.employee),
+                selectinload(CheckInOut.employee).selectinload(Employee.department),
                 selectinload(CheckInOut.schedule).selectinload(Schedule.role)
             )
         )
@@ -1739,7 +2275,7 @@ async def check_out(
         # Find today's check-in
         result = await db.execute(
             select(CheckInOut).options(
-                selectinload(CheckInOut.employee).selectinload(Employee.user),
+                selectinload(CheckInOut.employee).selectinload(Employee.department),
                 selectinload(CheckInOut.schedule).selectinload(Schedule.role)
             ).filter(
                 CheckInOut.employee_id == employee.id,
@@ -3798,7 +4334,7 @@ async def list_leave_requests(
 
         result = await db.execute(
             select(LeaveRequest)
-            .options(selectinload(LeaveRequest.employee))
+            .options(selectinload(LeaveRequest.employee).selectinload(Employee.department))
             .filter(LeaveRequest.employee_id == employee.id)
             .order_by(LeaveRequest.start_date)
         )
@@ -3810,15 +4346,15 @@ async def list_leave_requests(
 
         result = await db.execute(
             select(LeaveRequest)
-            .options(selectinload(LeaveRequest.employee))
+            .options(selectinload(LeaveRequest.employee).selectinload(Employee.department))
             .join(Employee)
             .filter(Employee.department_id == manager_dept)
             .order_by(LeaveRequest.start_date)
         )
-    else:  # Admin
+    else:  # Admin or Sub-Admin
         result = await db.execute(
             select(LeaveRequest)
-            .options(selectinload(LeaveRequest.employee))
+            .options(selectinload(LeaveRequest.employee).selectinload(Employee.department))
             .order_by(LeaveRequest.start_date)
         )
 
@@ -3838,7 +4374,7 @@ async def get_manager_leave_requests(
     # Get all leave requests including comp-off for employees in manager's department
     result = await db.execute(
         select(LeaveRequest)
-        .options(selectinload(LeaveRequest.employee))
+        .options(selectinload(LeaveRequest.employee).selectinload(Employee.department))
         .join(Employee)
         .filter(Employee.department_id == manager_dept)
         .order_by(LeaveRequest.start_date.desc())
@@ -7690,7 +8226,7 @@ async def list_overtime_requests(
         )
         if not status:
             status = OvertimeStatus.PENDING
-    else:  # ADMIN
+    else:  # ADMIN or SUB_ADMIN
         if not status:
             status = OvertimeStatus.PENDING
     

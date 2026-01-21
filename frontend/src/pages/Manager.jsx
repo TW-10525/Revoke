@@ -42,7 +42,7 @@ import {
 
 // =============== MANAGER PAGES ===============
 
-const ManagerDashboardHome = ({ user }) => {
+const ManagerDashboardHome = ({ user, onRoleSwitch }) => {
   const { t } = useLanguage();
   const [stats, setStats] = useState({
     totalEmployees: 0,
@@ -94,7 +94,7 @@ const ManagerDashboardHome = ({ user }) => {
 
   return (
     <div>
-      <Header title={t('dashboard')} subtitle={`${t('welcome')}, ${user.full_name}`} />
+      <Header title={t('dashboard')} subtitle={`${t('welcome')}, ${user.full_name}`} user={user} onRoleSwitch={onRoleSwitch} />
       <div className="p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
           {statCards.map((stat, index) => (
@@ -144,7 +144,7 @@ const ManagerDashboardHome = ({ user }) => {
   );
 };
 
-const ManagerEmployees = ({ user }) => {
+const ManagerEmployees = ({ user, onRoleSwitch }) => {
   const { t } = useLanguage();
   const [employees, setEmployees] = useState([]);
   const [roles, setRoles] = useState([]);
@@ -386,7 +386,7 @@ const ManagerEmployees = ({ user }) => {
 
   return (
     <div>
-      <Header title={t('manageEmployees')} subtitle={t('manageYourTeam')} />
+      <Header title={t('manageEmployees')} subtitle={t('manageYourTeam')} user={user} onRoleSwitch={onRoleSwitch} />
       <div className="p-6">
         {success && (
           <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-start">
@@ -633,7 +633,7 @@ const ManagerEmployees = ({ user }) => {
   );
 };
 
-const ManagerRoles = ({ user }) => {
+const ManagerRoles = ({ user, onRoleSwitch }) => {
   const { t } = useLanguage();
   const [roles, setRoles] = useState([]);
   const [showRoleModal, setShowRoleModal] = useState(false);
@@ -931,7 +931,7 @@ const ManagerRoles = ({ user }) => {
 
   return (
     <div>
-      <Header title={t('rolesShiftsManagement')} subtitle={t('configureJobRoles')} />
+      <Header title={t('rolesShiftsManagement')} subtitle={t('configureJobRoles')} user={user} onRoleSwitch={onRoleSwitch} />
       <div className="p-6 space-y-6">
 
         {/* Roles Section */}
@@ -1486,7 +1486,7 @@ const ManagerRoles = ({ user }) => {
     </div>
   );
 };
-const ManagerSchedules = ({ user }) => {
+const ManagerSchedules = ({ user, onRoleSwitch }) => {
   const { t } = useLanguage();
   const [employees, setEmployees] = useState([]);
   const [roles, setRoles] = useState([]);
@@ -1523,7 +1523,7 @@ const ManagerSchedules = ({ user }) => {
 
   return (
     <div>
-      <Header title={t('scheduleManagement')} subtitle={t('scheduleSubtitle')} />
+      <Header title={t('scheduleManagement')} subtitle={t('scheduleSubtitle')} user={user} onRoleSwitch={onRoleSwitch} />
       <div className="p-6">
         <ScheduleManager
           employees={employees}
@@ -1548,7 +1548,7 @@ function getWeekDates() {
   return weekDates;
 }
 
-const ManagerLeaves = () => {
+const ManagerLeaves = ({ onRoleSwitch }) => {
   const { t } = useLanguage();
   const [leaves, setLeaves] = useState([]);
   const [selectedLeave, setSelectedLeave] = useState(null);
@@ -2000,7 +2000,7 @@ const ManagerLeaves = () => {
 
   return (
     <div>
-      <Header title={t('leaveManagement')} subtitle={t('reviewAndManageLeaveRequests')} />
+      <Header title={t('leaveManagement')} subtitle={t('reviewAndManageLeaveRequests')} onRoleSwitch={onRoleSwitch} />
       <div className="p-6">
         {/* Employee Search Section */}
         <Card title={t('searchEmployeeLeaveDetails')} className="mb-6">
@@ -2594,7 +2594,7 @@ const ManagerLeaves = () => {
   );
 };
 
-const ManagerAttendance = ({ user }) => {
+const ManagerAttendance = ({ user, onRoleSwitch }) => {
   const { t, language } = useLanguage();
   const [attendance, setAttendance] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2783,7 +2783,7 @@ const ManagerAttendance = ({ user }) => {
 
   return (
     <div>
-      <Header title={t('attendance')} subtitle={t('trackDailyEmployeeAttendance')} />
+      <Header title={t('attendance')} subtitle={t('trackDailyEmployeeAttendance')} user={user} onRoleSwitch={onRoleSwitch} />
       <div className="p-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
           <Card padding={false}>
@@ -3108,7 +3108,7 @@ const ManagerAttendance = ({ user }) => {
   );
 };
 
-const ManagerMessages = ({ user }) => {
+const ManagerMessages = ({ user, onRoleSwitch }) => {
   const { t } = useLanguage();
   const [messages, setMessages] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -3201,7 +3201,7 @@ const ManagerMessages = ({ user }) => {
 
   return (
     <div>
-      <Header title={t('messages')} subtitle={t('communicateWithYourTeam')} />
+      <Header title={t('messages')} subtitle={t('communicateWithYourTeam')} user={user} onRoleSwitch={onRoleSwitch} />
       <div className="p-6">
         <Card
           title={t('messages')}
@@ -3398,11 +3398,11 @@ const ManagerMessages = ({ user }) => {
 
 // =============== MANAGER COMP-OFF COMPONENT ===============
 
-const ManagerCompOff = ({ user }) => {
+const ManagerCompOff = ({ user, onRoleSwitch }) => {
   const { t } = useLanguage();
   return (
     <div>
-      <Header title={t('compOffManagement')} subtitle={t('manageAndApproveCompOffRequests')} />
+      <Header title={t('compOffManagement')} subtitle={t('manageAndApproveCompOffRequests')} user={user} onRoleSwitch={onRoleSwitch} />
       <div className="p-6">
         <CompOffManagement currentUser={user} departmentId={user.manager_department_id} />
       </div>
@@ -3412,22 +3412,22 @@ const ManagerCompOff = ({ user }) => {
 
 // =============== MAIN MANAGER DASHBOARD COMPONENT ===============
 
-const ManagerDashboard = ({ user, onLogout }) => {
+const ManagerDashboard = ({ user, onLogout, onRoleSwitch }) => {
   return (
     <div className="flex h-screen bg-gray-100">
       <Sidebar user={user} onLogout={onLogout} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto">
           <Routes>
-            <Route path="/dashboard" element={<ManagerDashboardHome user={user} />} />
-            <Route path="/employees" element={<ManagerEmployees user={user} />} />
-            <Route path="/roles" element={<ManagerRoles user={user} />} />
-            <Route path="/schedules" element={<ManagerSchedules user={user} />} />
-            <Route path="/leaves" element={<ManagerLeaves />} />
-            <Route path="/comp-off" element={<ManagerCompOff user={user} />} />
-            <Route path="/overtime-approvals" element={<OvertimeApproval />} />
-            <Route path="/attendance" element={<ManagerAttendance user={user} />} />
-            <Route path="/messages" element={<ManagerMessages user={user} />} />
+            <Route path="/dashboard" element={<ManagerDashboardHome user={user} onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/employees" element={<ManagerEmployees user={user} onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/roles" element={<ManagerRoles user={user} onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/schedules" element={<ManagerSchedules user={user} onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/leaves" element={<ManagerLeaves onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/comp-off" element={<ManagerCompOff user={user} onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/overtime-approvals" element={<OvertimeApproval onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/attendance" element={<ManagerAttendance user={user} onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/messages" element={<ManagerMessages user={user} onRoleSwitch={onRoleSwitch} />} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>

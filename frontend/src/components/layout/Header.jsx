@@ -1,7 +1,8 @@
 import NotificationBell from './NotificationBell';
 import LanguageToggle from '../common/LanguageToggle';
+import RoleSwitcher from '../common/RoleSwitcher';
 
-const Header = ({ title, subtitle, showNotifications = true }) => {
+const Header = ({ title, subtitle, showNotifications = true, user, onRoleSwitch }) => {
   return (
     <header className="bg-white shadow-sm border-b border-gray-200">
       <div className="px-6 py-4">
@@ -13,6 +14,7 @@ const Header = ({ title, subtitle, showNotifications = true }) => {
 
           {showNotifications && (
             <div className="flex items-center space-x-4">
+              {user && onRoleSwitch && <RoleSwitcher user={user} onRoleSwitch={onRoleSwitch} />}
               <LanguageToggle />
               <NotificationBell />
             </div>

@@ -23,6 +23,10 @@ function App() {
   const handleLogin = (userData, token) => {
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(userData));
+    // Store available roles for role switching
+    if (userData.available_roles) {
+      localStorage.setItem('availableRoles', JSON.stringify(userData.available_roles));
+    }
     setUser(userData);
   };
 
@@ -30,6 +34,15 @@ function App() {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
+  };
+
+  const handleRoleSwitch = (newRole) => {
+    const updatedUser = {
+      ...user,
+      user_type: newRole,
+    };
+    localStorage.setItem('user', JSON.stringify(updatedUser));
+    setUser(updatedUser);
   };
 
   if (loading) {
@@ -56,12 +69,12 @@ function App() {
             element={
               !user ? (
                 <Navigate to="/login" />
-              ) : user.user_type === 'admin' ? (
-                <AdminDashboard user={user} onLogout={handleLogout} />
+              ) : user.user_type === 'admin' || user.user_type === 'sub_admin' ? (
+                <AdminDashboard user={user} onLogout={handleLogout} onRoleSwitch={handleRoleSwitch} />
               ) : user.user_type === 'manager' ? (
-                <ManagerDashboard user={user} onLogout={handleLogout} />
+                <ManagerDashboard user={user} onLogout={handleLogout} onRoleSwitch={handleRoleSwitch} />
               ) : (
-                <EmployeeDashboard user={user} onLogout={handleLogout} />
+                <EmployeeDashboard user={user} onLogout={handleLogout} onRoleSwitch={handleRoleSwitch} />
               )
             }
           />

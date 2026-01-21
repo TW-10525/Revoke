@@ -1,0 +1,20 @@
+                                         Table "public.sub_admins"
+   Column    |            Type             | Collation | Nullable |                Default                 
+-------------+-----------------------------+-----------+----------+----------------------------------------
+ id          | integer                     |           | not null | nextval('sub_admins_id_seq'::regclass)
+ employee_id | integer                     |           | not null | 
+ user_id     | integer                     |           | not null | 
+ created_by  | integer                     |           | not null | 
+ is_active   | boolean                     |           |          | 
+ created_at  | timestamp without time zone |           |          | 
+ updated_at  | timestamp without time zone |           |          | 
+Indexes:
+    "sub_admins_pkey" PRIMARY KEY, btree (id)
+    "ix_sub_admins_employee_id" UNIQUE, btree (employee_id)
+    "ix_sub_admins_id" btree (id)
+    "ix_sub_admins_user_id" UNIQUE, btree (user_id)
+Foreign-key constraints:
+    "fk_subadmin_creator" FOREIGN KEY (created_by) REFERENCES users(id)
+    "fk_subadmin_employee" FOREIGN KEY (employee_id) REFERENCES employees(id)
+    "fk_subadmin_user" FOREIGN KEY (user_id) REFERENCES users(id)
+

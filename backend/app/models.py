@@ -15,6 +15,7 @@ class UserType(str, enum.Enum):
     ADMIN = "admin"
     MANAGER = "manager"
     EMPLOYEE = "employee"
+    SUB_ADMIN = "sub_admin"
 
 
 class LeaveStatus(str, enum.Enum):
@@ -439,3 +440,45 @@ class CompOffDetail(Base):
 
     # Relationships
     tracking = relationship("CompOffTracking", back_populates="comp_off_details")
+
+
+class SubAdmin(Base):
+    """Sub-Admin model - Employee or Manager promoted to proxy admin with limited admin access"""
+    __tablename__ = "sub_admins"
+
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey('employees.id', name='fk_subadmin_employee'), nullable=True, unique=True, index=True)
+    manager_id = Column(Integer, ForeignKey('managers.id', name='fk_subadmin_manager'), nullable=True, unique=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', name='fk_subadmin_user'), nullable=False, unique=True, index=True)
+    created_by = Column(Integer, ForeignKey('users.id', name='fk_subadmin_creator'), nullable=False)  # Admin who created this sub-admin
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    employee = relationship("Employee", foreign_keys=[employee_id])
+    manager = relationship("Manager", foreign_keys=[manager_id])
+    user = relationship("User", foreign_keys=[user_id])
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class AuditLog(Base):
+    """Audit log for all important actions - who did what and when"""
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', name='fk_auditlog_user'), nullable=True, index=True)
+    action = Column(String(100), nullable=False, index=True)  # e.g., 'CREATE_EMPLOYEE', 'UPDATE_EMPLOYEE', 'DELETE_EMPLOYEE', 'APPROVE_LEAVE', 'LOGIN'
+    entity_type = Column(String(50), nullable=False, index=True)  # e.g., 'EMPLOYEE', 'LEAVE', 'SCHEDULE', 'OVERTIME', 'ROLE'
+    entity_id = Column(Integer, nullable=True)  # ID of affected entity
+    description = Column(Text, nullable=True)  # Human-readable description of what happened
+    old_values = Column(JSON, nullable=True)  # Previous values (for updates)
+    new_values = Column(JSON, nullable=True)  # New values (for updates)
+    ip_address = Column(String(45), nullable=True)  # IPv4 or IPv6
+    user_agent = Column(String(500), nullable=True)
+    status = Column(String(20), default='success')  # success, failed, partial
+    error_message = Column(Text, nullable=True)  # Error details if failed
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    # Relationships
+    user = relationship("User", foreign_keys=[user_id])

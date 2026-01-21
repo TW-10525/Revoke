@@ -81,11 +81,21 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
 
 
 async def require_admin(current_user: User = Depends(get_current_active_user)) -> User:
-    """Require admin role"""
-    if current_user.user_type != UserType.ADMIN:
+    """Require admin or sub-admin role"""
+    if current_user.user_type not in [UserType.ADMIN, UserType.SUB_ADMIN]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"
+        )
+    return current_user
+
+
+async def require_admin_only(current_user: User = Depends(get_current_active_user)) -> User:
+    """Require admin role only (not sub-admin) - for sensitive operations"""
+    if current_user.user_type != UserType.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin-only access required"
         )
     return current_user
 

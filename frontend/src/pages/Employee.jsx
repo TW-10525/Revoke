@@ -31,7 +31,7 @@ import {
 
 // =============== EMPLOYEE PAGES ===============
 
-const EmployeeDashboardHome = ({ user }) => {
+const EmployeeDashboardHome = ({ user, onRoleSwitch }) => {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [todaySchedule, setTodaySchedule] = useState(null);
@@ -72,7 +72,7 @@ const EmployeeDashboardHome = ({ user }) => {
 
   return (
     <div>
-      <Header title={t('employeeDashboard')} subtitle={`${t('welcome')}, ${user.full_name}`} />
+      <Header title={t('employeeDashboard')} subtitle={`${t('welcome')}, ${user.full_name}`} user={user} onRoleSwitch={onRoleSwitch} />
       <div className="p-6">
         <div className="mb-6 flex justify-end">
           <Button 
@@ -174,7 +174,7 @@ const EmployeeDashboardHome = ({ user }) => {
   );
 };
 
-const EmployeeCheckIn = ({ user }) => {
+const EmployeeCheckIn = ({ user, onRoleSwitch }) => {
   const { t } = useLanguage();
   const [todaySchedule, setTodaySchedule] = useState(null);
   const [checkedIn, setCheckedIn] = useState(false);
@@ -242,7 +242,7 @@ const EmployeeCheckIn = ({ user }) => {
   if (!todaySchedule) {
     return (
       <div>
-        <Header title={t('checkInOut')} subtitle={t('recordYourAttendance')} />
+        <Header title={t('checkInOut')} subtitle={t('recordYourAttendance')} user={user} onRoleSwitch={onRoleSwitch} />
         <div className="p-6">
           <Card>
             <div className="text-center py-12">
@@ -258,7 +258,7 @@ const EmployeeCheckIn = ({ user }) => {
 
   return (
     <div>
-      <Header title={t('checkInOut')} subtitle={t('recordYourAttendance')} />
+      <Header title={t('checkInOut')} subtitle={t('recordYourAttendance')} user={user} onRoleSwitch={onRoleSwitch} />
       <div className="p-6">
         {message.text && (
           <div className={`mb-6 p-4 rounded-lg flex items-start ${
@@ -378,7 +378,7 @@ const EmployeeCheckIn = ({ user }) => {
   );
 };
 
-const EmployeeSchedule = () => {
+const EmployeeSchedule = ({ onRoleSwitch }) => {
   const { t, language } = useLanguage();
   const [schedules, setSchedules] = useState([]);
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -409,7 +409,7 @@ const EmployeeSchedule = () => {
 
   return (
     <div>
-      <Header title={t('mySchedule')} subtitle={t('viewYourUpcomingShifts')} />
+      <Header title={t('mySchedule')} subtitle={t('viewYourUpcomingShifts')} onRoleSwitch={onRoleSwitch} />
       <div className="p-6">
         <Card>
           <div className="flex items-center justify-between mb-6">
@@ -531,7 +531,7 @@ const EmployeeSchedule = () => {
   );
 };
 
-const EmployeeLeaves = ({ user }) => {
+const EmployeeLeaves = ({ user, onRoleSwitch }) => {
   const { t, language } = useLanguage();
   const [leaves, setLeaves] = useState([]);
   const [leaveStats, setLeaveStats] = useState(null);
@@ -671,7 +671,7 @@ const EmployeeLeaves = ({ user }) => {
 
   return (
     <div>
-      <Header title={t('leaveRequests')} subtitle={t('requestAndManageTimeOff')} />
+      <Header title={t('leaveRequests')} subtitle={t('requestAndManageTimeOff')} user={user} onRoleSwitch={onRoleSwitch} />
       <div className="p-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
           <Card padding={false}>
@@ -923,7 +923,7 @@ const EmployeeLeaves = ({ user }) => {
   );
 };
 
-const EmployeeAttendance = () => {
+const EmployeeAttendance = ({ onRoleSwitch }) => {
   const { t, language } = useLanguage();
   const [attendance, setAttendance] = useState([]);
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -1001,7 +1001,7 @@ const EmployeeAttendance = () => {
 
   return (
     <div>
-      <Header title={t('myAttendance')} subtitle={t('viewAttendanceHistory')} />
+      <Header title={t('myAttendance')} subtitle={t('viewAttendanceHistory')} onRoleSwitch={onRoleSwitch} />
       <div className="p-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
           <Card padding={false}>
@@ -1173,7 +1173,7 @@ const EmployeeAttendance = () => {
   );
 };
 
-const EmployeeMessages = () => {
+const EmployeeMessages = ({ onRoleSwitch }) => {
   const { t, language } = useLanguage();
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1221,7 +1221,7 @@ const EmployeeMessages = () => {
 
   return (
     <div>
-      <Header title={t('messages')} subtitle={t('messagesFromManager')} />
+      <Header title={t('messages')} subtitle={t('messagesFromManager')} onRoleSwitch={onRoleSwitch} />
       <div className="p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
           <Card padding={false}>
@@ -1314,7 +1314,7 @@ const EmployeeMessages = () => {
 
 // =============== EMPLOYEE REQUESTS COMPONENT ===============
 
-const EmployeeRequests = ({ user }) => {
+const EmployeeRequests = ({ user, onRoleSwitch }) => {
   const { t } = useLanguage();
   const [requests, setRequests] = useState([]);
   const [showModal, setShowModal] = useState(false);
@@ -1419,6 +1419,8 @@ const EmployeeRequests = ({ user }) => {
       <Header 
         title={t('requestsApprovals')} 
         subtitle={t('manageYourLeaveAndOvertimeRequests')}
+        user={user}
+        onRoleSwitch={onRoleSwitch}
       />
       
       <div className="p-6">
@@ -1654,11 +1656,11 @@ const EmployeeRequests = ({ user }) => {
 
 // =============== EMPLOYEE COMP-OFF COMPONENT ===============
 
-const EmployeeCompOff = ({ user }) => {
+const EmployeeCompOff = ({ user, onRoleSwitch }) => {
   const { t } = useLanguage();
   return (
     <div>
-      <Header title={t('compOffManagement')} subtitle={t('applyAndManageCompOff')} />
+      <Header title={t('compOffManagement')} subtitle={t('applyAndManageCompOff')} user={user} onRoleSwitch={onRoleSwitch} />
       <div className="p-6">
         <CompOffManagement currentUser={user} departmentId={null} />
       </div>
@@ -1668,22 +1670,22 @@ const EmployeeCompOff = ({ user }) => {
 
 // =============== MAIN EMPLOYEE DASHBOARD COMPONENT ===============
 
-const EmployeeDashboard = ({ user, onLogout }) => {
+const EmployeeDashboard = ({ user, onLogout, onRoleSwitch }) => {
   return (
     <div className="flex h-screen bg-gray-100">
       <Sidebar user={user} onLogout={onLogout} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto">
           <Routes>
-            <Route path="/dashboard" element={<EmployeeDashboardHome user={user} />} />
-            <Route path="/check-in" element={<EmployeeCheckIn user={user} />} />
-            <Route path="/schedule" element={<EmployeeSchedule />} />
-            <Route path="/leaves" element={<EmployeeLeaves user={user} />} />
-            <Route path="/requests" element={<EmployeeRequests user={user} />} />
-            <Route path="/overtime-requests" element={<OvertimeRequest />} />
-            <Route path="/comp-off" element={<EmployeeCompOff user={user} />} />
-            <Route path="/attendance" element={<EmployeeAttendance />} />
-            <Route path="/messages" element={<EmployeeMessages />} />
+            <Route path="/dashboard" element={<EmployeeDashboardHome user={user} onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/check-in" element={<EmployeeCheckIn user={user} onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/schedule" element={<EmployeeSchedule onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/leaves" element={<EmployeeLeaves user={user} onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/requests" element={<EmployeeRequests user={user} onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/overtime-requests" element={<OvertimeRequest onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/comp-off" element={<EmployeeCompOff user={user} onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/attendance" element={<EmployeeAttendance onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/messages" element={<EmployeeMessages onRoleSwitch={onRoleSwitch} />} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>

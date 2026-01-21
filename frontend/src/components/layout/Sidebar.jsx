@@ -11,7 +11,8 @@ import {
   MessageSquare,
   UserCheck,
   LogOut,
-  Gift
+  Gift,
+  History
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 
@@ -22,7 +23,16 @@ const Sidebar = ({ user, onLogout }) => {
       return [
         { path: '/dashboard', icon: LayoutDashboard, label: t('dashboard') },
         { path: '/managers', icon: UserCog, label: t('manageManagers') },
+        { path: '/sub-admins', icon: Users, label: t('manageSubAdmins') },
         { path: '/departments', icon: Building2, label: t('manageDepartments') },
+        { path: '/audit-logs', icon: History, label: t('auditLogs') },
+      ];
+    } else if (user.user_type === 'sub_admin') {
+      return [
+        { path: '/dashboard', icon: LayoutDashboard, label: t('dashboard') },
+        { path: '/managers', icon: UserCog, label: t('manageManagers') },
+        { path: '/departments', icon: Building2, label: t('manageDepartments') },
+        { path: '/audit-logs', icon: History, label: t('auditLogs') },
       ];
     } else if (user.user_type === 'manager') {
       return [
@@ -66,7 +76,7 @@ const Sidebar = ({ user, onLogout }) => {
           <h1 className="text-2xl font-bold">{t('thirdwaveGroup')}</h1>
         </div>
         <p className="text-sm text-gray-400 mt-1">
-          {user.user_type === 'admin' 
+          {user.user_type === 'admin' || user.user_type === 'sub_admin'
             ? t('adminPortal') 
             : user.user_type === 'manager' 
             ? t('managerPortal') 

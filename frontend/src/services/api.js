@@ -270,4 +270,12 @@ export const markAllNotificationsRead = () => api.post('/notifications/mark-all-
 export const deleteNotification = (notificationId) =>
   api.delete(`/notifications/${notificationId}`);
 
+// Sub-Admin Management
+export const createSubAdmin = (subAdminData) => api.post('/admin/sub-admins', subAdminData);
+export const listSubAdmins = (activeOnly = true) => api.get('/admin/sub-admins', { params: { active_only: activeOnly } });
+export const deleteSubAdmin = (subAdminId) => api.delete(`/admin/sub-admins/${subAdminId}`);
+
+// Audit Logs
+export const getAuditLogs = (filters = {}) => api.get('/admin/audit-logs', { params: filters });
+
 export default api;

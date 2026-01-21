@@ -156,6 +156,8 @@ class ManagerResponse(BaseModel):
     user_id: int
     department_id: int
     is_active: bool
+    user: Optional['UserResponse'] = None
+    department: Optional['DepartmentResponse'] = None
 
     class Config:
         from_attributes = True
@@ -215,6 +217,7 @@ class EmployeeResponse(BaseModel):
     paid_leave_per_year: int
     skills: List[str]
     is_active: bool
+    department: Optional['DepartmentResponse'] = None
 
     class Config:
         from_attributes = True
@@ -657,6 +660,60 @@ class CompOffStatisticsResponse(BaseModel):
     total_expired: int
     current_month: str
     by_month: List[CompOffMonthlyBreakdown] = []
+
+    class Config:
+        from_attributes = True
+
+
+# Sub-Admin schemas
+class SubAdminCreate(BaseModel):
+    employee_id: int
+    is_manager: bool = False  # Flag to indicate if this is a manager, not an employee
+    manager_id: Optional[int] = None  # Manager ID if is_manager is True
+
+
+class SubAdminResponse(BaseModel):
+    id: int
+    employee_id: Optional[int] = None
+    manager_id: Optional[int] = None
+    user_id: int
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    employee: Optional['EmployeeResponse'] = None
+    manager: Optional['ManagerResponse'] = None
+
+    class Config:
+        from_attributes = True
+
+
+# Audit Log schemas
+class AuditLogCreate(BaseModel):
+    action: str
+    entity_type: str
+    entity_id: Optional[int] = None
+    description: Optional[str] = None
+    old_values: Optional[Dict] = None
+    new_values: Optional[Dict] = None
+    status: str = 'success'
+    error_message: Optional[str] = None
+
+
+class AuditLogResponse(BaseModel):
+    id: int
+    user_id: Optional[int]
+    user: Optional['UserResponse'] = None
+    action: str
+    entity_type: str
+    entity_id: Optional[int]
+    description: Optional[str]
+    old_values: Optional[Dict]
+    new_values: Optional[Dict]
+    ip_address: Optional[str]
+    user_agent: Optional[str]
+    status: str
+    error_message: Optional[str]
+    created_at: datetime
 
     class Config:
         from_attributes = True
