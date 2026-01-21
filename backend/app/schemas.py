@@ -150,6 +150,10 @@ class ManagerCreate(BaseModel):
     department_id: int
 
 
+class ManagerUpdate(BaseModel):
+    department_id: int
+
+
 class ManagerResponse(BaseModel):
     id: int
     manager_id: str
@@ -170,7 +174,7 @@ class ManagerDetailResponse(BaseModel):
     username: str
     full_name: str
     email: str
-    department_id: int
+    department_id: Optional[int] = None
     is_active: bool
 
     class Config:
