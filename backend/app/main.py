@@ -1979,7 +1979,14 @@ async def create_employee(
         user_id = user.id
     
     await db.commit()
-    await db.refresh(employee, attribute_names=['department'])
+    
+    # Re-fetch with relationships loaded to avoid lazy loading in response
+    refreshed_result = await db.execute(
+        select(Employee)
+        .options(selectinload(Employee.department))
+        .filter(Employee.id == employee.id)
+    )
+    employee = refreshed_result.scalar_one_or_none() or employee
     
     # Log the action
     try:
@@ -2111,8 +2118,14 @@ async def update_employee(
     employee.updated_at = datetime.utcnow()
     db.add(employee)
     await db.commit()
-<<<<<<< HEAD
-    await db.refresh(employee, attribute_names=['department'])
+    
+    # Re-fetch with relationships to avoid lazy-loading in response model
+    refreshed_result = await db.execute(
+        select(Employee)
+        .options(selectinload(Employee.department))
+        .filter(Employee.id == employee.id)
+    )
+    refreshed_employee = refreshed_result.scalar_one_or_none() or employee
     
     # Log the action
     try:
@@ -2127,18 +2140,8 @@ async def update_employee(
         )
     except Exception as e:
         print(f"Failed to log employee update: {e}")
-=======
->>>>>>> features/main
     
-    # Re-fetch with relationships to avoid lazy-loading in response model
-    refreshed_result = await db.execute(
-        select(Employee)
-        .options(selectinload(Employee.department))
-        .filter(Employee.id == employee.id)
-    )
-    refreshed_employee = refreshed_result.scalar_one_or_none()
-    
-    return refreshed_employee or employee
+    return refreshed_employee
 
 
 @app.delete("/employees/{employee_id}")
@@ -5917,7 +5920,6 @@ async def list_comp_off_requests(
             if not employee:
                 return []
 
-<<<<<<< HEAD
             result = await db.execute(
                 select(CompOffRequest)
                 .options(selectinload(CompOffRequest.employee).selectinload(Employee.department))
@@ -5930,26 +5932,11 @@ async def list_comp_off_requests(
             manager_result = await db.execute(
                 select(Manager).filter(Manager.user_id == current_user.id)
             )
-            manager = manager_result.scalars().first()
-=======
-        result = await db.execute(
-            select(CompOffRequest)
-            .options(selectinload(CompOffRequest.employee).selectinload(Employee.department))
-            .filter(CompOffRequest.employee_id == employee.id)
-            .order_by(CompOffRequest.comp_off_date.desc())
-        )
-    elif current_user.user_type == UserType.MANAGER:
-        # Managers see comp-off requests from employees in their department only
-        manager_result = await db.execute(
-            select(Manager).filter(Manager.user_id == current_user.id)
-        )
-        manager = manager_result.scalar_one_or_none()
->>>>>>> features/main
+            manager = manager_result.scalar_one_or_none()
 
             if not manager:
                 return []
 
-<<<<<<< HEAD
             # Get all comp-off requests from employees in this manager's department
             result = await db.execute(
                 select(CompOffRequest)
@@ -5984,25 +5971,6 @@ async def list_comp_off_requests(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error loading comp-off requests: {str(e)}")
-=======
-        # Get all comp-off requests from employees in this manager's department
-        result = await db.execute(
-            select(CompOffRequest)
-            .options(selectinload(CompOffRequest.employee).selectinload(Employee.department))
-            .join(Employee, CompOffRequest.employee_id == Employee.id)
-            .filter(Employee.department_id == manager.department_id)
-            .order_by(CompOffRequest.comp_off_date.desc())
-        )
-    else:
-        # Admins see all requests
-        result = await db.execute(
-            select(CompOffRequest)
-            .options(selectinload(CompOffRequest.employee).selectinload(Employee.department))
-            .order_by(CompOffRequest.comp_off_date.desc())
-        )
-
-    return result.scalars().all()
->>>>>>> features/main
 
 
 @app.get("/comp-off-tracking", response_model=CompOffTrackingResponse)
@@ -6603,9 +6571,6 @@ async def reject_comp_off(
     
     return {"message": "Comp-off rejected"}
 
-<<<<<<< HEAD
-=======
-
 @app.delete("/comp-off-requests/{comp_off_id}")
 async def cancel_comp_off_request(
     comp_off_id: int,
@@ -6636,9 +6601,6 @@ async def cancel_comp_off_request(
     await db.commit()
 
     return {"message": "Comp-off request cancelled"}
-
-
->>>>>>> features/main
 # Comp-Off Statistics Endpoints
 @app.get("/comp-off-statistics")
 async def get_comp_off_statistics(
