@@ -1,12 +1,7 @@
 import React, { useState, useEffect } from 'react';
-<<<<<<< HEAD
-import { ChevronLeft, ChevronRight, X, RefreshCw } from 'lucide-react';
-import { format, addDays, startOfWeek, isToday, addWeeks, subWeeks, parseISO } from 'date-fns';
-import { useLanguage } from '../context/LanguageContext';
-=======
 import { ChevronLeft, ChevronRight, X, RefreshCw, Calendar } from 'lucide-react';
 import { format, addDays, startOfWeek, isToday, addWeeks, subWeeks, parseISO, endOfWeek } from 'date-fns';
->>>>>>> majorv1/feature/attendance-shift
+import { useLanguage } from '../context/LanguageContext';
 
 const ManagerScheduleView = ({ user }) => {
   const { formatDate } = useLanguage();
@@ -271,11 +266,6 @@ const ManagerScheduleView = ({ user }) => {
             >
               <ChevronLeft size={20} />
             </button>
-<<<<<<< HEAD
-            <h2 className="text-xl font-bold text-gray-900 min-w-64">
-              Week of {formatDate(currentWeekStart)}
-            </h2>
-=======
             <div>
               <h2 className="text-xl font-bold text-gray-900">
                 Schedule Management
@@ -284,7 +274,6 @@ const ManagerScheduleView = ({ user }) => {
                 Week of {format(currentWeekStart, 'yyyy-MM-dd')} to {format(addDays(currentWeekStart, 6), 'yyyy-MM-dd')}
               </p>
             </div>
->>>>>>> majorv1/feature/attendance-shift
             <button 
               onClick={() => setCurrentWeekStart(addWeeks(currentWeekStart, 1))}
               className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
