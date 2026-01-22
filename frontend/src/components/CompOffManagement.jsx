@@ -174,7 +174,7 @@ const CompOffManagement = ({ currentUser, departmentId }) => {
   };
 
   const handleRevokeCompOff = async (compOffId) => {
-    if (!window.confirm('Revoke this approved comp-off?')) return;
+    if (!window.confirm(t('confirmRevokeCompOff'))) return;
     setLoading(true);
     setError('');
     try {
