@@ -118,7 +118,7 @@ const AdminDashboardHome = ({ user, onRoleSwitch }) => {
 };
 
 const AdminManagers = ({ user, onRoleSwitch }) => {
-  const { t } = useLanguage();
+  const { t, translateMessage } = useLanguage();
   const [managers, setManagers] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [showModal, setShowModal] = useState(false);
@@ -189,7 +189,7 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
       setDepartments(deptRes.data);
     } catch (error) {
       console.error('Failed to load managers:', error);
-      setError('Failed to load data');
+      setError(t('failedToLoadData'));
     } finally {
       setLoading(false);
     }
@@ -232,14 +232,14 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
       // Validate form before showing confirmation
       if (!formData.username?.trim() || !formData.email?.trim() || !formData.password?.trim() ||
           !formData.full_name?.trim() || !selectedDeptInfo) {
-        setError('Please fill in all required fields');
+        setError(t('fillAllRequiredFields'));
         return;
       }
       
       // Basic email validation
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(formData.email.trim())) {
-        setError('Please enter a valid email address');
+        setError(t('enterValidEmail'));
         return;
       }
       
@@ -248,13 +248,13 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
       try {
         const isAvailable = await checkUsernameAvailable(formData.username.trim());
         if (!isAvailable) {
-          setError(`Username "${formData.username.trim()}" already exists. Please choose a different username.`);
+          setError(`${t('usernameAlreadyExists')}: ${formData.username.trim()}. ${t('chooseDifferentUsername')}`);
           setSubmitting(false);
           return;
         }
         setShowCreateConfirm(true);
       } catch (err) {
-        setError('Failed to validate username availability');
+        setError(t('failedToValidateUsername'));
       } finally {
         setSubmitting(false);
       }
@@ -310,15 +310,15 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
           loadData();
         } else {
           // Unexpected response
-          setError('Unexpected response from server');
+          setError(t('unexpectedResponseFromServer'));
           setSubmitting(false);
         }
       } catch (managerErr) {
-        setError(managerErr.response?.data?.detail || 'Failed to create manager');
+        setError(managerErr.response?.data?.detail || t('failedToCreateManager'));
         setSubmitting(false);
       }
     } catch (err) {
-      const errorDetail = err.response?.data?.detail || err.message || 'Failed to create user';
+      const errorDetail = err.response?.data?.detail || err.message || t('failedToCreateUser');
       setError(errorDetail);
       console.error('Create user error:', errorDetail);
       setSubmitting(false);
@@ -353,12 +353,12 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
         setSubmitting(false);
         loadData();
       } else {
-        setError('Unexpected response from server: ' + JSON.stringify(response.data));
+        setError(`${t('unexpectedResponseFromServer')}: ${JSON.stringify(response.data)}`);
         setSubmitting(false);
       }
     } catch (err) {
       console.error('Reassign error:', err);
-      setError(err.response?.data?.detail || err.message || 'Failed to reassign manager');
+      setError(err.response?.data?.detail || err.message || t('failedToReassignManager'));
       setSubmitting(false);
     }
   };
@@ -393,7 +393,7 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
         setShowReassignConfirm(false);
         setShowReassignWarning(true);
       } else {
-        setReassignError(err.response?.data?.detail || err.message || 'Failed to reassign manager');
+        setReassignError(err.response?.data?.detail || err.message || t('failedToReassignManager'));
       }
     } finally {
       setSubmitting(false);
@@ -419,7 +419,7 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
       setSelectedManager(null);
       loadData();
     } catch (err) {
-      setReassignError(err.response?.data?.detail || err.message || 'Failed to reassign manager');
+      setReassignError(err.response?.data?.detail || err.message || t('failedToReassignManager'));
     } finally {
       setSubmitting(false);
     }
@@ -444,7 +444,7 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
       setDeleteTarget(null);
       loadData();
     } catch (err) {
-      alert('Failed to delete manager: ' + (err.response?.data?.detail || err.message));
+      alert(err.response?.data?.detail || t('failedToDeleteManager'));
       setShowDeleteConfirm(false);
     } finally {
       setSubmitting(false);
@@ -531,7 +531,7 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
         >
           {managers.length === 0 ? (
             <div className="text-center py-8">
-              <p className="text-gray-500">No managers yet. Create one to get started.</p>
+              <p className="text-gray-500">{t('noManagersYet')}</p>
             </div>
           ) : (
             <Table columns={columns} data={managers} />
@@ -577,7 +577,7 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
           {error && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start">
               <AlertCircle className="w-5 h-5 text-red-500 mr-2 flex-shrink-0 mt-0.5" />
-              <span className="text-sm text-red-700">{error}</span>
+              <span className="text-sm text-red-700">{translateMessage(error)}</span>
             </div>
           )}
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -640,7 +640,7 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
                 {selectedDeptInfo && (
                   <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-lg">
                     <p className="text-sm font-medium text-blue-900">
-                      Selected: {selectedDeptInfo.name} (Dept ID: {selectedDeptInfo.dept_id})
+                      {t('selectedDepartmentLabel')}: {selectedDeptInfo.name} ({t('departmentId')}: {selectedDeptInfo.dept_id})
                     </p>
                   </div>
                 )}
@@ -654,7 +654,7 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
                         className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-gray-100 last:border-b-0"
                       >
                         <p className="font-medium text-gray-900">{dept.name}</p>
-                        <p className="text-sm text-gray-600">Dept ID: {dept.dept_id} | ID: {dept.id} {dept.description ? '- ' + dept.description : ''}</p>
+                        <p className="text-sm text-gray-600">{t('departmentId')}: {dept.dept_id} | ID: {dept.id} {dept.description ? '- ' + dept.description : ''}</p>
                       </button>
                     ))}
                   </div>
@@ -697,7 +697,7 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
           {reassignError && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start">
               <AlertCircle className="w-5 h-5 text-red-500 mr-2 flex-shrink-0 mt-0.5" />
-              <span className="text-sm text-red-700">{reassignError}</span>
+              <span className="text-sm text-red-700">{translateMessage(reassignError)}</span>
             </div>
           )}
           {selectedManager && (
@@ -715,7 +715,7 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                   disabled={submitting}
                 >
-                  <option value="">{t('selectDepartment') || 'Select department'}</option>
+                  <option value="">{t('selectDepartment')}</option>
                   {departments.map(dept => (
                     <option key={dept.id} value={dept.id}>{dept.name}</option>
                   ))}
@@ -731,7 +731,7 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
           onClose={() => {
             setShowCreateConfirm(false);
           }}
-          title={'Confirm creating new manager'}
+          title={t('confirmCreateManager')}
           footer={
             <div className="flex justify-end space-x-3">
               <Button
@@ -768,7 +768,7 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
           onClose={() => {
             setShowReassignConfirm(false);
           }}
-          title={t('confirmReassign') || 'Confirm reassignment'}
+          title={t('confirmReassign')}
           footer={
             <div className="flex justify-end space-x-3">
               <Button
@@ -809,7 +809,7 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
           onClose={() => {
             setShowReassignWarning(false);
           }}
-          title="Manager Already Assigned"
+          title={t('managerAlreadyAssigned')}
           footer={
             <div className="flex justify-end space-x-3">
               <Button
@@ -833,11 +833,11 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
           <div className="space-y-4">
             <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
               <p className="text-orange-900 font-medium">
-                Manager already assigned to this department. Do you want to reassign?
+                {t('managerAlreadyAssignedBody')}
               </p>
             </div>
             <p className="text-sm text-gray-600">
-              The current manager will be deactivated and this manager will be assigned to the department.
+              {t('managerReassignNote')}
             </p>
           </div>
         </Modal>
@@ -851,7 +851,7 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
             setNewManagerData(null);
             setError('');
           }}
-          title={t('confirmDelete')}
+          title={t('managerAlreadyAssigned')}
           footer={
             <div className="flex justify-end space-x-3">
               <Button
@@ -878,40 +878,40 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
           {error && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start">
               <AlertCircle className="w-5 h-5 text-red-500 mr-2 flex-shrink-0 mt-0.5" />
-              <span className="text-sm text-red-700">{error}</span>
+              <span className="text-sm text-red-700">{translateMessage(error)}</span>
             </div>
           )}
           {conflictData && (
             <div className="space-y-4">
               <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
                 <p className="text-orange-900 font-medium text-lg">
-                  ⚠️ Manager Already Assigned to This Department
+                  ⚠️ {t('managerAlreadyAssignedTitle')}
                 </p>
               </div>
               
               <div className="space-y-3">
                 <div>
-                  <p className="text-sm font-semibold text-gray-700 mb-2">Current Manager:</p>
+                  <p className="text-sm font-semibold text-gray-700 mb-2">{t('currentManager')}:</p>
                   <div className="bg-gray-50 p-3 rounded-lg space-y-1">
-                    <p className="text-sm"><strong>Name:</strong> {conflictData.existing_manager.full_name}</p>
-                    <p className="text-sm"><strong>Email:</strong> {conflictData.existing_manager.email}</p>
-                    <p className="text-sm"><strong>Username:</strong> {conflictData.existing_manager.username}</p>
+                    <p className="text-sm"><strong>{t('fullName')}:</strong> {conflictData.existing_manager.full_name}</p>
+                    <p className="text-sm"><strong>{t('email')}:</strong> {conflictData.existing_manager.email}</p>
+                    <p className="text-sm"><strong>{t('username')}:</strong> {conflictData.existing_manager.username}</p>
                   </div>
                 </div>
 
                 <div>
-                  <p className="text-sm font-semibold text-gray-700 mb-2">New Manager:</p>
+                  <p className="text-sm font-semibold text-gray-700 mb-2">{t('newManager')}:</p>
                   <div className="bg-blue-50 p-3 rounded-lg space-y-1">
-                    <p className="text-sm"><strong>Name:</strong> {formData.full_name}</p>
-                    <p className="text-sm"><strong>Email:</strong> {formData.email}</p>
-                    <p className="text-sm"><strong>Username:</strong> {formData.username}</p>
+                    <p className="text-sm"><strong>{t('fullName')}:</strong> {formData.full_name}</p>
+                    <p className="text-sm"><strong>{t('email')}:</strong> {formData.email}</p>
+                    <p className="text-sm"><strong>{t('username')}:</strong> {formData.username}</p>
                   </div>
                 </div>
               </div>
 
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <p className="text-sm text-blue-900">
-                  ℹ️ If you proceed, the current manager will be unassigned from this department and the new manager will be assigned.
+                  ℹ️ {t('managerReassignInfo')}
                 </p>
               </div>
             </div>
@@ -973,7 +973,7 @@ const AdminManagers = ({ user, onRoleSwitch }) => {
 // =============== ADMIN DEPARTMENTS COMPONENT ===============
 
 const AdminDepartments = ({ user, onRoleSwitch }) => {
-  const { t, language } = useLanguage();
+  const { t, language, formatDate, translateMessage } = useLanguage();
   const monthKeys = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
   const [departments, setDepartments] = useState([]);
   const [selectedDept, setSelectedDept] = useState(null);
@@ -1023,7 +1023,7 @@ const AdminDepartments = ({ user, onRoleSwitch }) => {
       setDepartments(response.data);
       setError('');
     } catch (err) {
-      setError('Failed to load departments');
+      setError(t('failedToLoadDepartments'));
       console.error(err);
     } finally {
       setLoading(false);
@@ -1057,7 +1057,7 @@ const AdminDepartments = ({ user, onRoleSwitch }) => {
       
       setError('');
     } catch (err) {
-      setError('Failed to load department details');
+      setError(t('failedToLoadDepartmentDetails'));
       console.error(err);
     } finally {
       setLoading(false);
@@ -1079,14 +1079,9 @@ const AdminDepartments = ({ user, onRoleSwitch }) => {
     return format(new Date(dateTime), 'HH:mm:ss');
   };
 
-  const formatDate = (dateTime) => {
-    if (!dateTime) return '-';
-    return format(new Date(dateTime), 'MMM dd, yyyy');
-  };
-
   const downloadMonthlyReport = async () => {
     if (!selectedDept) {
-      setError('Please select a department first');
+      setError(t('selectDepartmentFirst'));
       return;
     }
     try {
@@ -1101,14 +1096,14 @@ const AdminDepartments = ({ user, onRoleSwitch }) => {
       link.click();
       link.remove();
     } catch (err) {
-      setError('Failed to download monthly report');
+      setError(t('failedToDownloadReport'));
       console.error(err);
     }
   };
 
   const downloadWeeklyReport = async () => {
     if (!selectedDept) {
-      setError('Please select a department first');
+      setError(t('selectDepartmentFirst'));
       return;
     }
     try {
@@ -1130,7 +1125,7 @@ const AdminDepartments = ({ user, onRoleSwitch }) => {
       link.click();
       link.remove();
     } catch (err) {
-      setError('Failed to download weekly report');
+      setError(t('failedToDownloadReport'));
       console.error(err);
     }
   };
@@ -1155,7 +1150,7 @@ const AdminDepartments = ({ user, onRoleSwitch }) => {
       );
 
       if (!response.ok) {
-        throw new Error('Download failed');
+        throw new Error(t('failedDownloadReport'));
       }
 
       const blob = await response.blob();
@@ -1169,7 +1164,7 @@ const AdminDepartments = ({ user, onRoleSwitch }) => {
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Download failed:', error);
-      alert('Failed to download employee report');
+      alert(t('failedDownloadReport'));
     } finally {
       setEmpDownloading(false);
     }
@@ -1180,7 +1175,7 @@ const AdminDepartments = ({ user, onRoleSwitch }) => {
     setModalError('');
 
     if (!formData.dept_id?.trim() || !formData.name?.trim()) {
-      setModalError('Department ID and Name are required');
+      setModalError(t('departmentIdNameRequired'));
       return;
     }
 
@@ -1199,48 +1194,48 @@ const AdminDepartments = ({ user, onRoleSwitch }) => {
       });
       loadDepartments();
     } catch (err) {
-      setModalError(err.response?.data?.detail || 'Failed to create department');
+      setModalError(err.response?.data?.detail || t('failedToCreateDepartment'));
     } finally {
       setSubmitting(false);
     }
   };
 
   const employeeColumns = [
-    { key: 'employee_id', label: 'Employee ID', width: '120px' },
+    { key: 'employee_id', label: t('employeeId'), width: '120px' },
     { 
       key: 'name', 
-      label: 'Name', 
+      label: t('name'), 
       width: '200px',
       render: (row) => `${row.first_name} ${row.last_name}`
     },
-    { key: 'email', label: 'Email', width: '200px' },
+    { key: 'email', label: t('email'), width: '200px' },
     { 
       key: 'assigned_shift', 
-      label: 'Assigned Shift Time', 
+      label: t('assignedShiftTime'), 
       width: '180px',
       render: (row) => row.assigned_shift_time || '-'
     },
     { 
       key: 'total_hrs_assigned', 
-      label: 'Total Hrs Assigned', 
+      label: t('totalHrsAssigned'), 
       width: '150px',
-      render: (row) => row.total_hrs_assigned ? `${row.total_hrs_assigned} hrs` : '-'
+      render: (row) => row.total_hrs_assigned ? `${row.total_hrs_assigned} ${t('hours')}` : '-'
     },
     { 
       key: 'check_in', 
-      label: 'Check-In', 
+      label: t('checkInHeader'), 
       width: '130px',
       render: (row) => formatTime(row.latest_check_in)
     },
     { 
       key: 'check_out', 
-      label: 'Check-Out', 
+      label: t('checkOutHeader'), 
       width: '130px',
       render: (row) => formatTime(row.latest_check_out)
     },
     { 
       key: 'total_hrs_worked', 
-      label: 'Total Hrs Worked', 
+      label: t('totalHrsWorkedHeader'), 
       width: '150px',
       render: (row) => {
         if (!row.latest_check_in || !row.latest_check_out) return '-';
@@ -1248,14 +1243,14 @@ const AdminDepartments = ({ user, onRoleSwitch }) => {
         const checkOut = new Date(row.latest_check_out);
         const diffMs = checkOut - checkIn;
         const hours = (diffMs / (1000 * 60 * 60)).toFixed(2);
-        return `${hours} hrs`;
+        return `${hours} ${t('hours')}`;
       }
     },
     { 
       key: 'break_time', 
-      label: 'Break Time', 
+      label: t('breakTimeHeader'), 
       width: '120px',
-      render: () => '1 hr'
+      render: () => `1 ${t('hours')}`
     },
   ];
 
@@ -1274,7 +1269,7 @@ const AdminDepartments = ({ user, onRoleSwitch }) => {
 
         {error && (
           <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
-            {error}
+            {translateMessage(error)}
           </div>
         )}
 
@@ -1503,7 +1498,7 @@ const AdminDepartments = ({ user, onRoleSwitch }) => {
                         <label className="block text-sm font-medium text-gray-700 mb-1">{t('employeeId')}</label>
                         <input
                           type="text"
-                          placeholder="e.g., EMP001"
+                          placeholder={t('employeeIdExample')}
                           value={employeeIdInput}
                           onChange={(e) => setEmployeeIdInput(e.target.value)}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1658,7 +1653,7 @@ const AdminDepartments = ({ user, onRoleSwitch }) => {
                     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
                       <div className="px-6 py-4 border-b border-gray-200">
                         <h3 className="text-lg font-semibold text-gray-900">
-                          {t('todaysAttendanceTable')} - {format(new Date(), 'MMMM dd, yyyy')}
+                          {t('todaysAttendanceTable')} - {formatDate(new Date())}
                         </h3>
                       </div>
                       
@@ -1712,7 +1707,7 @@ const AdminDepartments = ({ user, onRoleSwitch }) => {
                                     {record.schedule ? `${record.schedule.start_time} - ${record.schedule.end_time}` : '-'}
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
-                                    {calculateTotalAssignedHours()} hrs
+                                    {calculateTotalAssignedHours()} {t('hours')}
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                                     {record.in_time ? record.in_time : '-'}
@@ -1721,13 +1716,13 @@ const AdminDepartments = ({ user, onRoleSwitch }) => {
                                     {record.out_time ? record.out_time : '-'}
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                                    {record.worked_hours !== null && record.worked_hours !== undefined ? record.worked_hours.toFixed(2) : '-'} hrs
+                                    {record.worked_hours !== null && record.worked_hours !== undefined ? `${record.worked_hours.toFixed(2)} ${t('hours')}` : '-'}
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                                     {record.break_minutes} min
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-orange-600">
-                                    {record.overtime_hours ? record.overtime_hours.toFixed(2) : '-'} hrs
+                                    {record.overtime_hours ? `${record.overtime_hours.toFixed(2)} ${t('hours')}` : '-'}
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap">
                                     <span className={`px-2 py-1 rounded-full text-xs ${
@@ -1736,7 +1731,7 @@ const AdminDepartments = ({ user, onRoleSwitch }) => {
                                       record.status === 'late' ? 'bg-orange-100 text-orange-800' :
                                       'bg-blue-100 text-blue-800'
                                     }`}>
-                                      {record.status || 'Scheduled'}
+                                      {record.status || t('scheduled')}
                                     </span>
                                   </td>
                                 </tr>
@@ -1849,7 +1844,7 @@ const AdminDepartments = ({ user, onRoleSwitch }) => {
 
 // Sub-Admin Management
 const AdminSubAdmins = ({ user, onRoleSwitch }) => {
-  const { t } = useLanguage();
+  const { t, formatDate, translateMessage } = useLanguage();
   const [subAdmins, setSubAdmins] = useState([]);
   const [managers, setManagers] = useState([]);
   const [showModal, setShowModal] = useState(false);
@@ -1876,7 +1871,7 @@ const AdminSubAdmins = ({ user, onRoleSwitch }) => {
       setManagers(managersRes.data);
     } catch (error) {
       console.error('Failed to load sub-admins:', error);
-      setError('Failed to load data');
+      setError(t('failedToLoadData'));
     } finally {
       setLoading(false);
     }
@@ -1887,13 +1882,13 @@ const AdminSubAdmins = ({ user, onRoleSwitch }) => {
     setError('');
 
     if (!selectedManager) {
-      setError('Please select a manager');
+      setError(t('pleaseSelectManager'));
       return;
     }
 
     // Check if already a sub-admin (check by manager_id since we're adding managers)
     if (subAdmins.some(sa => sa.manager_id === selectedManager.manager_id)) {
-      setError('This manager is already a sub-admin');
+      setError(t('managerAlreadySubAdmin'));
       return;
     }
 
@@ -1908,7 +1903,7 @@ const AdminSubAdmins = ({ user, onRoleSwitch }) => {
       setSelectedManager(null);
       loadData();
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to create sub-admin');
+      setError(err.response?.data?.detail || t('failedToCreateSubAdmin'));
     } finally {
       setSubmitting(false);
     }
@@ -1927,7 +1922,7 @@ const AdminSubAdmins = ({ user, onRoleSwitch }) => {
       setDeleteTarget(null);
       loadData();
     } catch (err) {
-      alert('Failed to delete sub-admin: ' + (err.response?.data?.detail || err.message));
+      alert(err.response?.data?.detail || t('failedToDeleteSubAdmin'));
       setShowDeleteConfirm(false);
     } finally {
       setSubmitting(false);
@@ -1987,7 +1982,7 @@ const AdminSubAdmins = ({ user, onRoleSwitch }) => {
     {
       header: t('createdAt'),
       width: '150px',
-      render: (row) => format(new Date(row.created_at), 'MMM dd, yyyy')
+      render: (row) => formatDate(row.created_at)
     },
     {
       header: t('actions'),
@@ -2050,7 +2045,7 @@ const AdminSubAdmins = ({ user, onRoleSwitch }) => {
             {error && (
               <div className="p-3 bg-red-100 text-red-700 rounded-lg flex items-center gap-2">
                 <AlertCircle className="w-4 h-4" />
-                {error}
+                {translateMessage(error)}
               </div>
             )}
 
@@ -2060,14 +2055,14 @@ const AdminSubAdmins = ({ user, onRoleSwitch }) => {
               </label>
               <input
                 type="text"
-                placeholder="Search manager by name or ID"
+                placeholder={t('searchManagerByNameOrId')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none mb-2"
               />
               <div className="max-h-40 overflow-y-auto border border-gray-300 rounded-lg">
                 {filteredManagers.length === 0 ? (
-                  <div className="p-3 text-gray-500 text-center">No managers available</div>
+                  <div className="p-3 text-gray-500 text-center">{t('noManagersAvailable')}</div>
                 ) : (
                   filteredManagers.map(mgr => (
                     <button
@@ -2158,7 +2153,7 @@ const AdminSubAdmins = ({ user, onRoleSwitch }) => {
 };
 
 const AdminAuditLogs = ({ user, onRoleSwitch }) => {
-  const { t } = useLanguage();
+  const { t, formatDate, translateMessage } = useLanguage();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -2167,6 +2162,33 @@ const AdminAuditLogs = ({ user, onRoleSwitch }) => {
     entity_type: '',
     user_id: ''
   });
+
+  const translateAction = (action) => {
+    if (!action) return '-';
+    const map = {
+      CREATE_EMPLOYEE: t('createEmployeeAction'),
+      CREATE_EMPLOYEE_RECORD: t('createEmployeeAction'),
+    };
+    return map[action] || t(action.toLowerCase()) || action;
+  };
+
+  const translateUser = (user) => {
+    if (!user) return '-';
+    if (user.full_name === 'System Administrator') {
+      return t('systemAdministratorRole');
+    }
+    return user.full_name;
+  };
+
+  const translateStatus = (status) => {
+    if (!status) return '-';
+    const normalized = status.toLowerCase();
+    const map = {
+      success: t('success'),
+      failed: t('error'),
+    };
+    return map[normalized] || t(normalized) || status;
+  };
 
   useEffect(() => {
     loadAuditLogs();
@@ -2185,7 +2207,7 @@ const AdminAuditLogs = ({ user, onRoleSwitch }) => {
       const response = await api.get(`/admin/audit-logs?${params.toString()}`);
       setLogs(response.data);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to load audit logs');
+      setError(err.response?.data?.detail || t('failedToLoadAuditLogs'));
     } finally {
       setLoading(false);
     }
@@ -2197,7 +2219,7 @@ const AdminAuditLogs = ({ user, onRoleSwitch }) => {
       width: '180px',
       render: (row) => {
         try {
-          return row.created_at ? format(new Date(row.created_at), 'yyyy-MM-dd HH:mm:ss') : '-';
+          return row.created_at ? formatDate(row.created_at, { withTime: true }) : '-';
         } catch (e) {
           return row.created_at || '-';
         }
@@ -2206,12 +2228,12 @@ const AdminAuditLogs = ({ user, onRoleSwitch }) => {
     { 
       header: t('user'), 
       width: '150px',
-      render: (row) => row.user?.full_name || '-' 
+      render: (row) => translateUser(row.user) 
     },
     { 
       header: t('action'), 
       width: '150px',
-      render: (row) => row.action || '-' 
+      render: (row) => translateAction(row.action)
     },
     { 
       header: t('entityType'), 
@@ -2228,7 +2250,7 @@ const AdminAuditLogs = ({ user, onRoleSwitch }) => {
       width: '100px',
       render: (row) => (
         <span className={`px-2 py-1 rounded text-xs font-semibold ${row.status === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-          {row.status || '-'}
+          {translateStatus(row.status)}
         </span>
       )
     }
@@ -2248,7 +2270,7 @@ const AdminAuditLogs = ({ user, onRoleSwitch }) => {
           <h1 className="text-3xl font-bold text-gray-900">{t('auditLogs')}</h1>
         </div>
 
-        {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">{error}</div>}
+        {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">{translateMessage(error)}</div>}
 
         <Card>
           <div className="space-y-4">
@@ -2259,7 +2281,7 @@ const AdminAuditLogs = ({ user, onRoleSwitch }) => {
                   type="text"
                   value={filters.action}
                   onChange={(e) => setFilters({...filters, action: e.target.value})}
-                  placeholder="e.g., CREATE_EMPLOYEE"
+                  placeholder={t('actionPlaceholderExample')}
                   className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
                 />
               </div>
@@ -2269,7 +2291,7 @@ const AdminAuditLogs = ({ user, onRoleSwitch }) => {
                   type="text"
                   value={filters.entity_type}
                   onChange={(e) => setFilters({...filters, entity_type: e.target.value})}
-                  placeholder="e.g., EMPLOYEE"
+                  placeholder={t('entityPlaceholderExample')}
                   className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
                 />
               </div>
@@ -2279,7 +2301,7 @@ const AdminAuditLogs = ({ user, onRoleSwitch }) => {
                   type="number"
                   value={filters.user_id}
                   onChange={(e) => setFilters({...filters, user_id: e.target.value})}
-                  placeholder="User ID"
+                  placeholder={t('userIdPlaceholder')}
                   className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
                 />
               </div>

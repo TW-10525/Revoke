@@ -109,104 +109,142 @@ const NotificationBell = () => {
   };
 
   const translateNotificationTitle = (title, type) => {
-    if (language !== 'ja') return title;
+    const normalizedTitle = (title || '').trim();
+    const typeKeyMap = {
+      leave_request: 'notificationLeaveRequestTitle',
+      leave_approved: 'notificationLeaveApprovedTitle',
+      leave_rejected: 'notificationLeaveRejectedTitle',
+      comp_off_request: 'notificationCompOffRequestTitle',
+      comp_off_approved: 'notificationCompOffApprovedTitle',
+      comp_off_rejected: 'notificationCompOffRejectedTitle',
+      comp_off_earned: 'notificationCompOffEarnedTitle',
+      comp_off_used: 'notificationCompOffUsedTitle',
+      overtime_request: 'notificationOvertimeRequestTitle',
+      overtime_approved: 'notificationOvertimeApprovedTitle',
+      overtime_rejected: 'notificationOvertimeRejectedTitle',
+      schedule_update: 'notificationScheduleUpdateTitle',
+      message: 'notificationMessageTitle'
+    };
+
+    if (language !== 'ja') {
+      return normalizedTitle || t(typeKeyMap[type]) || title;
+    }
 
     // Parse and translate notification titles
-    if (title.includes('Leave Request from')) {
-      const name = title.replace('📝 Leave Request from ', '');
+    if (normalizedTitle.includes('Leave Request from')) {
+      const name = normalizedTitle.replace('📝 Leave Request from ', '').replace('Leave Request from ', '');
       return `📝 ${name}からの休暇申請`;
     }
-    if (title.includes('Leave Request Approved')) {
+    if (normalizedTitle.includes('Leave Request Approved')) {
       return '✅ 休暇申請が承認されました';
     }
-    if (title.includes('Leave Request Rejected')) {
+    if (normalizedTitle.includes('Leave Request Rejected')) {
       return '❌ 休暇申請が却下されました';
     }
-    if (title.includes('Comp-Off Request from')) {
-      const name = title.replace('📝 Comp-Off Request from ', '');
+    if (normalizedTitle.includes('Comp-Off Request from')) {
+      const name = normalizedTitle.replace('📝 Comp-Off Request from ', '').replace('Comp-Off Request from ', '');
       return `📝 ${name}からの代休申請`;
     }
-    if (title.includes('Comp-Off Usage Approved')) {
+    if (normalizedTitle.includes('Comp-Off Usage Approved')) {
       return '✅ 代休使用が承認されました';
     }
-    if (title.includes('Comp-Off Usage Rejected')) {
+    if (normalizedTitle.includes('Comp-Off Usage Rejected')) {
       return '❌ 代休使用が却下されました';
     }
-    if (title.includes('Overtime Request from')) {
-      const name = title.replace('📝 Overtime Request from ', '');
+    if (normalizedTitle.includes('Overtime Request from')) {
+      const name = normalizedTitle.replace('📝 Overtime Request from ', '').replace('Overtime Request from ', '');
       return `📝 ${name}からの残業申請`;
     }
-    if (title.includes('Overtime Request Approved')) {
+    if (normalizedTitle.includes('Overtime Request Approved')) {
       return '✅ 残業申請が承認されました';
     }
-    if (title.includes('Overtime Request Rejected')) {
+    if (normalizedTitle.includes('Overtime Request Rejected')) {
       return '❌ 残業申請が却下されました';
     }
-    return title;
+    return t(typeKeyMap[type]) || normalizedTitle || title;
   };
 
   const translateNotificationMessage = (message, type) => {
-    if (language !== 'ja') return message;
+    const normalizedMsg = (message || '').trim();
+    const typeKeyMap = {
+      leave_request: 'notificationLeaveRequestMessage',
+      leave_approved: 'notificationLeaveApprovedMessage',
+      leave_rejected: 'notificationLeaveRejectedMessage',
+      comp_off_request: 'notificationCompOffRequestMessage',
+      comp_off_approved: 'notificationCompOffApprovedMessage',
+      comp_off_rejected: 'notificationCompOffRejectedMessage',
+      comp_off_earned: 'notificationCompOffEarnedMessage',
+      comp_off_used: 'notificationCompOffUsedMessage',
+      overtime_request: 'notificationOvertimeRequestMessage',
+      overtime_approved: 'notificationOvertimeApprovedMessage',
+      overtime_rejected: 'notificationOvertimeRejectedMessage',
+      schedule_update: 'notificationScheduleUpdateMessage',
+      message: 'notificationMessageMessage'
+    };
+
+    if (language !== 'ja') {
+      return normalizedMsg || t(typeKeyMap[type]) || message;
+    }
 
     // Parse and translate notification messages
-    const leaveRequestMatch = message.match(/^(.+) has requested (\w+) leave from (.+) to (.+)\.$/);
+    const leaveRequestMatch = normalizedMsg.match(/^(.+) has requested (\w+) leave from (.+) to (.+)\.$/);
     if (leaveRequestMatch) {
       const [, name, leaveType, startDate, endDate] = leaveRequestMatch;
       const leaveTypeJa = leaveType === 'paid' ? '有給' : leaveType === 'unpaid' ? '無給' : leaveType === 'comp_off' ? '代休' : leaveType;
       return `${name}が${leaveTypeJa}休暇を${startDate}から${endDate}まで申請しました。`;
     }
 
-    const leaveApprovedMatch = message.match(/^Your (.+) leave request from (.+) to (.+) has been approved\.$/);
+    const leaveApprovedMatch = normalizedMsg.match(/^Your (.+) leave request from (.+) to (.+) has been approved\.$/);
     if (leaveApprovedMatch) {
       const [, leaveType, startDate, endDate] = leaveApprovedMatch;
       const leaveTypeJa = leaveType.toLowerCase() === 'paid' ? '有給' : leaveType.toLowerCase() === 'unpaid' ? '無給' : leaveType.toLowerCase() === 'comp_off' ? '代休' : leaveType;
       return `あなたの${leaveTypeJa}休暇申請（${startDate}から${endDate}まで）が承認されました。`;
     }
 
-    const leaveRejectedMatch = message.match(/^Your (.+) leave request from (.+) to (.+) has been rejected\.$/);
+    const leaveRejectedMatch = normalizedMsg.match(/^Your (.+) leave request from (.+) to (.+) has been rejected\.$/);
     if (leaveRejectedMatch) {
       const [, leaveType, startDate, endDate] = leaveRejectedMatch;
       const leaveTypeJa = leaveType.toLowerCase() === 'paid' ? '有給' : leaveType.toLowerCase() === 'unpaid' ? '無給' : leaveType.toLowerCase() === 'comp_off' ? '代休' : leaveType;
       return `あなたの${leaveTypeJa}休暇申請（${startDate}から${endDate}まで）が却下されました。`;
     }
 
-    const compOffRequestMatch = message.match(/^(.+) has requested comp-off for working on (.+)\.$/);
+    const compOffRequestMatch = normalizedMsg.match(/^(.+) has requested comp-off for working on (.+)\.$/);
     if (compOffRequestMatch) {
       const [, name, date] = compOffRequestMatch;
       return `${name}が${date}の勤務に対して代休を申請しました。`;
     }
 
-    const compOffApprovedMatch = message.match(/^Your comp-off request for (.+) has been approved\.$/);
+    const compOffApprovedMatch = normalizedMsg.match(/^Your comp-off request for (.+) has been approved\.$/);
     if (compOffApprovedMatch) {
       const [, date] = compOffApprovedMatch;
       return `${date}の代休申請が承認されました。`;
     }
 
-    const compOffRejectedMatch = message.match(/^Your comp-off request for (.+) has been rejected\.$/);
+    const compOffRejectedMatch = normalizedMsg.match(/^Your comp-off request for (.+) has been rejected\.$/);
     if (compOffRejectedMatch) {
       const [, date] = compOffRejectedMatch;
       return `${date}の代休申請が却下されました。`;
     }
 
-    const overtimeRequestMatch = message.match(/^(.+) has requested overtime approval for (.+) hours on (.+)\.$/);
+    const overtimeRequestMatch = normalizedMsg.match(/^(.+) has requested overtime approval for (.+) hours on (.+)\.$/);
     if (overtimeRequestMatch) {
       const [, name, hours, date] = overtimeRequestMatch;
       return `${name}が${date}に${hours}時間の残業承認を申請しました。`;
     }
 
-    const overtimeApprovedMatch = message.match(/^Your overtime request for (.+) hours on (.+) has been approved\.$/);
+    const overtimeApprovedMatch = normalizedMsg.match(/^Your overtime request for (.+) hours on (.+) has been approved\.$/);
     if (overtimeApprovedMatch) {
       const [, hours, date] = overtimeApprovedMatch;
       return `${date}の${hours}時間の残業申請が承認されました。`;
     }
 
-    const overtimeRejectedMatch = message.match(/^Your overtime request for (.+) hours on (.+) has been rejected\.$/);
+    const overtimeRejectedMatch = normalizedMsg.match(/^Your overtime request for (.+) hours on (.+) has been rejected\.$/);
     if (overtimeRejectedMatch) {
       const [, hours, date] = overtimeRejectedMatch;
       return `${date}の${hours}時間の残業申請が却下されました。`;
     }
 
-    return message;
+    return t(typeKeyMap[type]) || normalizedMsg || message;
   };
 
   return (

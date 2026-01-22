@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, X, RefreshCw } from 'lucide-react';
 import { format, addDays, startOfWeek, isToday, addWeeks, subWeeks, parseISO } from 'date-fns';
+import { useLanguage } from '../context/LanguageContext';
 
 const ManagerScheduleView = ({ user }) => {
+  const { formatDate } = useLanguage();
   const [schedule, setSchedule] = useState({});
   const [employees, setEmployees] = useState([]);
   const [roles, setRoles] = useState([});
@@ -261,7 +263,7 @@ const ManagerScheduleView = ({ user }) => {
               <ChevronLeft size={20} />
             </button>
             <h2 className="text-xl font-bold text-gray-900 min-w-64">
-              Week of {format(currentWeekStart, 'MMM dd, yyyy')}
+              Week of {formatDate(currentWeekStart)}
             </h2>
             <button 
               onClick={() => setCurrentWeekStart(addWeeks(currentWeekStart, 1))}
@@ -298,7 +300,7 @@ const ManagerScheduleView = ({ user }) => {
                     style={{ minWidth: '140px' }}
                   >
                     <div className="text-sm text-gray-900">{daysOfWeek[idx]}</div>
-                    <div className="text-xs text-gray-600">{format(date, 'MMM dd')}</div>
+                    <div className="text-xs text-gray-600">{formatDate(date)}</div>
                   </td>
                 ))}
               </tr>
@@ -498,7 +500,7 @@ const ManagerScheduleView = ({ user }) => {
                       <div className="font-semibold text-sm text-gray-900">
                         {daysOfWeek[idx].slice(0, 3)}
                       </div>
-                      <div className="text-xs text-gray-500 mb-2">{format(date, 'MMM dd')}</div>
+                      <div className="text-xs text-gray-500 mb-2">{formatDate(date)}</div>
 
                       {shifts.length > 0 && !onLeave && !unavail && (
                         <div className="mb-2 text-xs bg-green-100 p-1 rounded border border-green-300 space-y-0.5">
@@ -614,7 +616,7 @@ const ManagerScheduleView = ({ user }) => {
               <div>
                 <p className="text-sm text-gray-600 font-semibold">Date Range</p>
                 <p className="text-lg text-gray-900 font-bold">
-                  {selectedLeave.start_date ? format(parseISO(selectedLeave.start_date), 'MMM dd, yyyy') : 'N/A'} to {selectedLeave.end_date ? format(parseISO(selectedLeave.end_date), 'MMM dd, yyyy') : 'N/A'}
+                  {selectedLeave.start_date ? formatDate(selectedLeave.start_date) : 'N/A'} to {selectedLeave.end_date ? formatDate(selectedLeave.end_date) : 'N/A'}
                 </p>
               </div>
 
@@ -648,7 +650,7 @@ const ManagerScheduleView = ({ user }) => {
 
               {/* Request Date */}
               <div className="text-xs text-gray-500 pt-2 border-t">
-                Requested on: {selectedLeave.created_at ? format(parseISO(selectedLeave.created_at), 'MMM dd, yyyy') : format(parseISO(selectedLeave.start_date), 'MMM dd, yyyy')}
+                Requested on: {selectedLeave.created_at ? formatDate(selectedLeave.created_at) : formatDate(selectedLeave.start_date)}
               </div>
             </div>
 

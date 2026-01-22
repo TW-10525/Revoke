@@ -94,7 +94,7 @@ const OvertimeApproval = ({ user, onRoleSwitch }) => {
       await revokeOvertimeRequest(requestId, approvalNotes || 'Revoked by manager');
       setMessage({
         type: 'success',
-        text: 'Overtime approval revoked'
+        text: t('overtimeApprovalRevoked')
       });
       setSelectedRequest(null);
       setApprovalNotes('');
@@ -103,7 +103,7 @@ const OvertimeApproval = ({ user, onRoleSwitch }) => {
       console.error('Error revoking request:', error);
       setMessage({
         type: 'error',
-        text: error.response?.data?.detail || 'Failed to revoke overtime'
+        text: error.response?.data?.detail || t('failedToRevokeOvertime')
       });
     } finally {
       setProcessingId(null);
