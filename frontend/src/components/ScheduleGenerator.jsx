@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { AlertCircle, Sparkles, Calendar } from 'lucide-react';
+import { AlertCircle, Sparkles, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import Button from './common/Button';
 import Modal from './common/Modal';
 import { generateSchedules } from '../services/api';
-import { format, addDays, startOfWeek } from 'date-fns';
+import { format, addDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addWeeks, addMonths, subDays } from 'date-fns';
 
 const ScheduleGenerator = ({ onSuccess, onClose, departmentId = null }) => {
   const [loading, setLoading] = useState(false);
@@ -123,29 +123,96 @@ const ScheduleGenerator = ({ onSuccess, onClose, departmentId = null }) => {
 
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Start Date
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              📅 Quick Period Selection
             </label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              disabled={loading}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <Button 
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const start = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
+                  const end = format(endOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
+                  setStartDate(start);
+                  setEndDate(end);
+                }}
+                className="text-sm"
+              >
+                This Week
+              </Button>
+              <Button 
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const start = format(addWeeks(startOfWeek(new Date(), { weekStartsOn: 1 }), 1), 'yyyy-MM-dd');
+                  const end = format(addWeeks(endOfWeek(new Date(), { weekStartsOn: 1 }), 1), 'yyyy-MM-dd');
+                  setStartDate(start);
+                  setEndDate(end);
+                }}
+                className="text-sm"
+              >
+                Next Week
+              </Button>
+              <Button 
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const start = format(startOfMonth(new Date()), 'yyyy-MM-dd');
+                  const end = format(endOfMonth(new Date()), 'yyyy-MM-dd');
+                  setStartDate(start);
+                  setEndDate(end);
+                }}
+                className="text-sm"
+              >
+                This Month
+              </Button>
+              <Button 
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const start = format(startOfMonth(addMonths(new Date(), 1)), 'yyyy-MM-dd');
+                  const end = format(endOfMonth(addMonths(new Date(), 1)), 'yyyy-MM-dd');
+                  setStartDate(start);
+                  setEndDate(end);
+                }}
+                className="text-sm"
+              >
+                Next Month
+              </Button>
+            </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              End Date
+          <div className="border-t pt-4">
+            <label className="block text-sm font-medium text-gray-700 mb-4">
+              📌 Or Enter Custom Date Range
             </label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              disabled={loading}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-2">
+                  Start Date
+                </label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  disabled={loading}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-2">
+                  End Date
+                </label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  disabled={loading}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+              </div>
+            </div>
           </div>
         </div>
 

@@ -103,6 +103,8 @@ const NotificationBell = () => {
         return '📅';
       case 'message':
         return '💬';
+      case 'shift_preference':
+        return '📋';
       default:
         return '🔔';
     }
@@ -161,7 +163,14 @@ const NotificationBell = () => {
     if (normalizedTitle.includes('Overtime Request Rejected')) {
       return '❌ 残業申請が却下されました';
     }
+<<<<<<< HEAD
     return t(typeKeyMap[type]) || normalizedTitle || title;
+=======
+    if (title.includes('Shift Preference Form')) {
+      return '📋 シフト希望フォーム';
+    }
+    return title;
+>>>>>>> majorv1/feature/attendance-shift
   };
 
   const translateNotificationMessage = (message, type) => {
@@ -244,7 +253,20 @@ const NotificationBell = () => {
       return `${date}の${hours}時間の残業申請が却下されました。`;
     }
 
+<<<<<<< HEAD
     return t(typeKeyMap[type]) || normalizedMsg || message;
+=======
+    if (message.includes('shift preference form is available')) {
+      const periodMatch = message.match(/available: (.+)\. Please/);
+      if (periodMatch) {
+        const period = periodMatch[1];
+        return `シフト希望フォームが利用可能になりました: ${period}。希望を提出してください。`;
+      }
+      return 'シフト希望フォームが利用可能になりました。希望を提出してください。';
+    }
+
+    return message;
+>>>>>>> majorv1/feature/attendance-shift
   };
 
   return (

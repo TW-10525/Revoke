@@ -9,6 +9,7 @@ import Modal from '../components/common/Modal';
 import CheckInOut from '../components/CheckInOut';
 import OvertimeRequest from '../components/OvertimeRequest';
 import CompOffManagement from '../components/CompOffManagement';
+import EmployeePreferenceForm from '../components/EmployeePreferenceForm';
 import { useLanguage } from '../context/LanguageContext';
 import api, {
   listLeaveRequests,
@@ -37,6 +38,7 @@ const EmployeeDashboardHome = ({ user, onRoleSwitch }) => {
   const [todaySchedule, setTodaySchedule] = useState(null);
   const [loading, setLoading] = useState(true);
   const [leaveStats, setLeaveStats] = useState(null);
+  const [shiftPreferenceForms, setShiftPreferenceForms] = useState([]);
   const monthKeys = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
 
   useEffect(() => {
@@ -49,12 +51,14 @@ const EmployeeDashboardHome = ({ user, onRoleSwitch }) => {
   const loadData = async () => {
     try {
       const today = format(new Date(), 'yyyy-MM-dd');
-      const [schedulesRes, statsRes] = await Promise.all([
+      const [schedulesRes, statsRes, formsRes] = await Promise.all([
         getSchedules(today, today),
-        getLeaveStatistics()
+        getLeaveStatistics(),
+        api.get('/shift-preference-forms')
       ]);
       setTodaySchedule(schedulesRes.data[0] || null);
       setLeaveStats(statsRes.data);
+      setShiftPreferenceForms(formsRes.data || []);
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
     } finally {
@@ -95,6 +99,28 @@ const EmployeeDashboardHome = ({ user, onRoleSwitch }) => {
                 <p className="text-sm text-blue-700 mt-1">
                   {t('youHaveTaken')} <strong>{leaveStats.taken_paid_leave}</strong> {leaveStats.taken_paid_leave > 1 ? t('daysOfPaidLeaveAvailable') : t('dayOfPaidLeave')} {t('youHave')} <strong>{leaveStats.available_paid_leave}</strong> {t('daysOfPaidLeaveAvailable')}.
                 </p>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Shift Preference Forms Notification */}
+        {shiftPreferenceForms && shiftPreferenceForms.length > 0 && (
+          <div className="mb-6">
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-semibold text-amber-900">📋 Shift Preference Forms Available</p>
+                <p className="text-sm text-amber-700 mt-1">
+                  You have <strong>{shiftPreferenceForms.length}</strong> preference form{shiftPreferenceForms.length > 1 ? 's' : ''} to submit. Please fill them out at your earliest convenience.
+                </p>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => navigate('/preferences')}
+                  className="mt-3"
+                >
+                  Fill Out Forms
+                </Button>
               </div>
             </div>
           </div>
@@ -161,6 +187,38 @@ const EmployeeDashboardHome = ({ user, onRoleSwitch }) => {
             </div>
           </Card>
         </div>
+        {/* Shift Preference Forms Detail Section */}
+        {shiftPreferenceForms && shiftPreferenceForms.length > 0 && (
+          <Card title="📋 Shift Preference Forms" className="mb-6">
+            <div className="space-y-3">
+              {shiftPreferenceForms.map(form => (
+                <div key={form.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition">
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-gray-900">{form.period?.name || 'Shift Period'}</h3>
+                      {form.period && (
+                        <p className="text-sm text-gray-600 mt-1">
+                          {new Date(form.period.period_start).toLocaleDateString()} - {new Date(form.period.period_end).toLocaleDateString()}
+                        </p>
+                      )}
+                      <p className="text-sm text-gray-500 mt-1">
+                        <strong>{form.available_shifts?.length || 0}</strong> shift{form.available_shifts?.length !== 1 ? 's' : ''} available
+                      </p>
+                    </div>
+                    <Button 
+                      variant="outline"
+                      size="sm"
+                      onClick={() => navigate('/preferences')}
+                      className="flex items-center gap-2"
+                    >
+                      📝 Submit
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
         <Card title={t('importantInformation')}>
           <div className="space-y-2 text-sm text-gray-600">
             <p>• {t('rememberToCheckIn')}</p>
@@ -954,6 +1012,14 @@ const EmployeeAttendance = ({ onRoleSwitch }) => {
   const [downloading, setDownloading] = useState(false);
   const monthKeys = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
 
+  // Helper function to convert decimal hours to HH:MM format
+  const formatDecimalHours = (decimalHours) => {
+    if (!decimalHours) return '-';
+    const hours = Math.floor(decimalHours);
+    const minutes = Math.round((decimalHours - hours) * 60);
+    return `${hours}:${minutes.toString().padStart(2, '0')}`;
+  };
+
   useEffect(() => {
     loadAttendance();
   }, [currentMonth]);
@@ -1090,19 +1156,19 @@ const EmployeeAttendance = ({ onRoleSwitch }) => {
               <div>
                 <p className="text-xs text-gray-600 mb-1">{t('totalHoursWorked')}</p>
                 <p className="text-lg font-bold text-blue-600">
-                  {(attendance.reduce((sum, r) => sum + (r.worked_hours || 0), 0)).toFixed(2)}h
+                  {formatDecimalHours(attendance.reduce((sum, r) => sum + (r.worked_hours || 0), 0))}
                 </p>
               </div>
               <div>
                 <p className="text-xs text-gray-600 mb-1">{t('attendanceNightHours')}</p>
                 <p className="text-lg font-bold text-purple-600">
-                  {(attendance.reduce((sum, r) => sum + (r.night_hours || 0), 0)).toFixed(2)}h
+                  {formatDecimalHours(attendance.reduce((sum, r) => sum + (r.night_hours || 0), 0))}
                 </p>
               </div>
               <div>
                 <p className="text-xs text-gray-600 mb-1">{t('overtimeHoursLabel')}</p>
                 <p className="text-lg font-bold text-orange-600">
-                  {(attendance.reduce((sum, r) => sum + (r.overtime_hours || 0), 0)).toFixed(2)}h
+                  {formatDecimalHours(attendance.reduce((sum, r) => sum + (r.overtime_hours || 0), 0))}
                 </p>
               </div>
               <div>
@@ -1151,16 +1217,16 @@ const EmployeeAttendance = ({ onRoleSwitch }) => {
                         {record.out_time ? record.out_time : '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 font-medium">
-                        {record.worked_hours ? `${record.worked_hours.toFixed(2)}h` : '-'}
+                        {record.worked_hours ? formatDecimalHours(record.worked_hours) : '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-purple-600 font-medium">
-                        {record.night_hours ? `${record.night_hours.toFixed(2)}h` : '-'}
+                        {record.night_hours ? formatDecimalHours(record.night_hours) : '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         {record.break_minutes ? `${record.break_minutes}m` : '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-orange-600 font-medium">
-                        {record.overtime_hours ? `${record.overtime_hours.toFixed(2)}h` : '-'}
+                        {record.overtime_hours ? formatDecimalHours(record.overtime_hours) : '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -1190,6 +1256,19 @@ const EmployeeAttendance = ({ onRoleSwitch }) => {
             <li>• {t('attendanceHistoryVisible')}</li>
           </ul>
         </Card>
+      </div>
+    </div>
+  );
+};
+
+const EmployeePreferences = ({ user, onRoleSwitch }) => {
+  const { t } = useLanguage();
+
+  return (
+    <div>
+      <Header title="Shift Preferences" subtitle="Submit your shift and leave day preferences" user={user} onRoleSwitch={onRoleSwitch} />
+      <div className="p-6">
+        <EmployeePreferenceForm />
       </div>
     </div>
   );
@@ -1732,6 +1811,7 @@ const EmployeeDashboard = ({ user, onLogout, onRoleSwitch }) => {
             <Route path="/overtime-requests" element={<OvertimeRequest onRoleSwitch={onRoleSwitch} />} />
             <Route path="/comp-off" element={<EmployeeCompOff user={user} onRoleSwitch={onRoleSwitch} />} />
             <Route path="/attendance" element={<EmployeeAttendance onRoleSwitch={onRoleSwitch} />} />
+            <Route path="/preferences" element={<EmployeePreferences user={user} onRoleSwitch={onRoleSwitch} />} />
             <Route path="/messages" element={<EmployeeMessages onRoleSwitch={onRoleSwitch} />} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
           </Routes>

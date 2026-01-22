@@ -3,7 +3,7 @@ Database Models for Shift Scheduler - Normalized Schema V6
 Optimized with clean foreign key relationships
 """
 
-from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime, ForeignKey, JSON, Date, Text, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime, ForeignKey, JSON, Date, Text, Enum as SQLEnum, ARRAY
 from sqlalchemy.orm import relationship, declarative_base
 from datetime import datetime
 import enum
@@ -310,7 +310,9 @@ class Shift(Base):
     priority = Column(Integer, default=50)
     min_emp = Column(Integer, default=1)  # Minimum employees required
     max_emp = Column(Integer, default=10)  # Maximum employees allowed
-    schedule_config = Column(JSON, default=dict)
+    schedule_config = Column(JSON, default=dict)  # Legacy: for weekly day configuration
+    from_date = Column(Date, nullable=True)  # New: shift starts on this date
+    to_date = Column(Date, nullable=True)  # New: shift ends on this date
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -357,6 +359,7 @@ class OvertimeRequest(Base):
     status = Column(SQLEnum(OvertimeStatus), default=OvertimeStatus.PENDING)
     manager_id = Column(Integer, ForeignKey('users.id', name='fk_ot_request_manager'), nullable=True)
     manager_notes = Column(Text, nullable=True)
+    approval_notes = Column(Text, nullable=True)  # Added for approval/rejection notes
     created_at = Column(DateTime, default=datetime.utcnow)
     approved_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -482,3 +485,64 @@ class AuditLog(Base):
 
     # Relationships
     user = relationship("User", foreign_keys=[user_id])
+
+class ShiftPeriod(Base):
+    """Shift Period - Manager creates a period for scheduling preferences"""
+    __tablename__ = "shift_periods"
+
+    id = Column(Integer, primary_key=True, index=True)
+    department_id = Column(Integer, ForeignKey('departments.id', name='fk_shiftperiod_department'), nullable=False)
+    manager_id = Column(Integer, ForeignKey('managers.id', name='fk_shiftperiod_manager'), nullable=False)
+    name = Column(String(200), nullable=False)
+    description = Column(Text)
+    period_start = Column(Date, nullable=False)
+    period_end = Column(Date, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    department = relationship("Department")
+    manager = relationship("Manager")
+    preference_forms = relationship("ShiftPreferenceForm", back_populates="shift_period", cascade="all, delete-orphan")
+
+
+class ShiftPreferenceForm(Base):
+    """Shift Preference Form - Manager's template for requesting employee preferences"""
+    __tablename__ = "shift_preference_forms"
+
+    id = Column(Integer, primary_key=True, index=True)
+    shift_period_id = Column(Integer, ForeignKey('shift_periods.id', name='fk_prefform_period'), nullable=False)
+    department_id = Column(Integer, ForeignKey('departments.id', name='fk_prefform_department'), nullable=False)
+    manager_id = Column(Integer, ForeignKey('managers.id', name='fk_prefform_manager'), nullable=False)
+    status = Column(String(20), default='active')  # active, closed, expired
+    available_shifts = Column(ARRAY(Integer), nullable=False, server_default='{}')  # List of available shift IDs in this period
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    shift_period = relationship("ShiftPeriod", back_populates="preference_forms")
+    department = relationship("Department")
+    manager = relationship("Manager")
+    employee_preferences = relationship("EmployeeShiftPreference", back_populates="preference_form", cascade="all, delete-orphan")
+
+
+class EmployeeShiftPreference(Base):
+    """Employee's shift and leave day preferences for a shift period"""
+    __tablename__ = "employee_shift_preferences"
+
+    id = Column(Integer, primary_key=True, index=True)
+    preference_form_id = Column(Integer, ForeignKey('shift_preference_forms.id', name='fk_empref_form'), nullable=False)
+    employee_id = Column(Integer, ForeignKey('employees.id', name='fk_empref_employee'), nullable=False)
+    department_id = Column(Integer, ForeignKey('departments.id', name='fk_empref_department'), nullable=False)
+    preferred_shifts = Column(ARRAY(Integer), nullable=False, server_default='{}')  # List of preferred shift IDs
+    leave_day_1 = Column(Integer, nullable=True)  # Day of week 0-6 (Mon-Sun)
+    leave_day_2 = Column(Integer, nullable=True)  # Day of week 0-6 (Mon-Sun)
+    notes = Column(Text)
+    submitted_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    preference_form = relationship("ShiftPreferenceForm", back_populates="employee_preferences")
+    employee = relationship("Employee")
+    department = relationship("Department")

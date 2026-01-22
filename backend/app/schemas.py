@@ -32,6 +32,8 @@ class ShiftCreate(BaseModel):
     min_emp: int = 1
     max_emp: int = 10
     schedule_config: dict = {}
+    from_date: Optional[str] = None  # YYYY-MM-DD format
+    to_date: Optional[str] = None  # YYYY-MM-DD format
 
 
 class ShiftUpdate(BaseModel):
@@ -42,6 +44,8 @@ class ShiftUpdate(BaseModel):
     min_emp: Optional[int] = None
     max_emp: Optional[int] = None
     schedule_config: Optional[dict] = None
+    from_date: Optional[str] = None
+    to_date: Optional[str] = None
 
 
 class ShiftResponse(BaseModel):
@@ -54,6 +58,8 @@ class ShiftResponse(BaseModel):
     min_emp: int
     max_emp: int
     schedule_config: dict
+    from_date: Optional[str] = None
+    to_date: Optional[str] = None
     is_active: bool
 
     class Config:
@@ -723,7 +729,77 @@ class AuditLogResponse(BaseModel):
         from_attributes = True
 
 
-# Update forward references for circular dependencies
-CheckInResponse.model_rebuild()
-ScheduleResponse.model_rebuild()
-MessageResponse.model_rebuild()
+# Shift Preference schemas
+class ShiftPeriodCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    period_start: date
+    period_end: date
+
+
+class ShiftPeriodResponse(BaseModel):
+    id: int
+    department_id: int
+    manager_id: int
+    name: str
+    description: Optional[str]
+    period_start: date
+    period_end: date
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ShiftPreferenceFormCreate(BaseModel):
+    shift_period_id: int
+    available_shifts: List[int] = []
+
+
+class ShiftPreferenceFormResponse(BaseModel):
+    id: int
+    shift_period_id: int
+    department_id: int
+    manager_id: int
+    status: str
+    available_shifts: List[int]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class EmployeeShiftPreferenceCreate(BaseModel):
+    preference_form_id: int
+    preferred_shifts: List[int]
+    leave_day_1: int  # 0-6 (Mon-Sun)
+    leave_day_2: int  # 0-6 (Mon-Sun)
+    notes: Optional[str] = None
+
+
+class EmployeeShiftPreferenceResponse(BaseModel):
+    id: int
+    preference_form_id: int
+    employee_id: int
+    department_id: int
+    preferred_shifts: List[int]
+    leave_day_1: int
+    leave_day_2: int
+    notes: Optional[str]
+    submitted_at: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class EmployeeShiftPreferenceUpdate(BaseModel):
+    preferred_shifts: List[int]
+    leave_day_1: int
+    leave_day_2: int
+    notes: Optional[str] = None
+
+

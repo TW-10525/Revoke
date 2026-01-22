@@ -14,7 +14,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, update, and_, or_, func, Float, Integer
-from sqlalchemy.orm import selectinload, with_loader_criteria
+from sqlalchemy.orm import selectinload
 from datetime import datetime, timedelta, date
 from typing import List, Dict, Optional
 from collections import defaultdict
@@ -28,7 +28,8 @@ from app.models import (
     CheckInOut, Message, Notification,
     UserType, LeaveStatus, Attendance, Unavailability, Shift,
     OvertimeTracking, OvertimeRequest, OvertimeWorked, OvertimeStatus,
-    CompOffRequest, CompOffTracking, CompOffDetail, SubAdmin, AuditLog
+    CompOffRequest, CompOffTracking, CompOffDetail, SubAdmin, AuditLog,
+    ShiftPeriod, ShiftPreferenceForm, EmployeeShiftPreference
 )
 from app.schemas import *
 from app.auth import (
@@ -644,6 +645,113 @@ async def cleanup_duplicate_managers():
         print(f"Cleanup duplicate managers error: {e}")
 
 
+async def create_shift_preference_tables():
+    """Create shift preference tables if they don't exist"""
+    from app.database import engine
+    from sqlalchemy import text
+    
+    try:
+        async with engine.begin() as conn:
+            # Check if shift_periods table exists
+            result = await conn.execute(
+                text("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_name = 'shift_periods'
+                    );
+                """)
+            )
+            
+            if result.scalar():
+                print("✓ Shift preference tables already exist")
+                return
+            
+            # Create shift_periods table
+            print("Creating shift_periods table...")
+            await conn.execute(text("""
+                CREATE TABLE shift_periods (
+                    id SERIAL PRIMARY KEY,
+                    department_id INTEGER NOT NULL REFERENCES departments(id),
+                    manager_id INTEGER REFERENCES managers(id),
+                    name VARCHAR(200) NOT NULL,
+                    description TEXT,
+                    period_start DATE NOT NULL,
+                    period_end DATE NOT NULL,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            
+            # Create shift_periods indexes separately
+            await conn.execute(text("""
+                CREATE INDEX idx_shift_periods_department ON shift_periods(department_id)
+            """))
+            await conn.execute(text("""
+                CREATE INDEX idx_shift_periods_manager ON shift_periods(manager_id)
+            """))
+            print("✓ shift_periods table created")
+            
+            # Create shift_preference_forms table
+            print("Creating shift_preference_forms table...")
+            await conn.execute(text("""
+                CREATE TABLE shift_preference_forms (
+                    id SERIAL PRIMARY KEY,
+                    shift_period_id INTEGER NOT NULL REFERENCES shift_periods(id),
+                    department_id INTEGER NOT NULL REFERENCES departments(id),
+                    manager_id INTEGER REFERENCES managers(id),
+                    status VARCHAR(20) DEFAULT 'active',
+                    available_shifts INTEGER[] DEFAULT ARRAY[]::INTEGER[],
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            
+            # Create shift_preference_forms indexes separately
+            await conn.execute(text("""
+                CREATE INDEX idx_shift_preference_forms_period ON shift_preference_forms(shift_period_id)
+            """))
+            await conn.execute(text("""
+                CREATE INDEX idx_shift_preference_forms_department ON shift_preference_forms(department_id)
+            """))
+            await conn.execute(text("""
+                CREATE INDEX idx_shift_preference_forms_status ON shift_preference_forms(status)
+            """))
+            print("✓ shift_preference_forms table created")
+            
+            # Create employee_shift_preferences table
+            print("Creating employee_shift_preferences table...")
+            await conn.execute(text("""
+                CREATE TABLE employee_shift_preferences (
+                    id SERIAL PRIMARY KEY,
+                    preference_form_id INTEGER NOT NULL REFERENCES shift_preference_forms(id),
+                    employee_id INTEGER NOT NULL REFERENCES employees(id),
+                    department_id INTEGER NOT NULL REFERENCES departments(id),
+                    preferred_shifts INTEGER[] DEFAULT ARRAY[]::INTEGER[],
+                    leave_day_1 INTEGER,
+                    leave_day_2 INTEGER,
+                    notes TEXT,
+                    submitted_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            
+            # Create employee_shift_preferences indexes separately
+            await conn.execute(text("""
+                CREATE INDEX idx_employee_preferences_form ON employee_shift_preferences(preference_form_id)
+            """))
+            await conn.execute(text("""
+                CREATE INDEX idx_employee_preferences_employee ON employee_shift_preferences(employee_id)
+            """))
+            await conn.execute(text("""
+                CREATE INDEX idx_employee_preferences_department ON employee_shift_preferences(department_id)
+            """))
+            print("✓ employee_shift_preferences table created")
+            
+    except Exception as e:
+        print(f"✗ Error creating shift preference tables: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
     """Run all database migrations on startup"""
@@ -662,6 +770,7 @@ async def startup_event():
     await fix_user_email_constraint()
     await cleanup_duplicate_users()
     await cleanup_duplicate_managers()
+    await create_shift_preference_tables()
     
     print("="*60)
     print("All migrations completed!")
@@ -1065,30 +1174,40 @@ async def create_user(
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    # Check if username exists
-    result = await db.execute(select(User).filter(User.username == user_data.username))
-    if result.scalars().first():
-        raise HTTPException(status_code=400, detail="Username already exists")
-    
-    # Check if email exists
-    result = await db.execute(select(User).filter(User.email == user_data.email))
-    if result.scalars().first():
-        raise HTTPException(status_code=400, detail="Email already exists")
-    
-    new_user = User(
-        username=user_data.username,
-        email=user_data.email,
-        hashed_password=get_password_hash(user_data.password),
-        full_name=user_data.full_name,
-        user_type=user_data.user_type,
-        is_active=True
-    )
-    
-    db.add(new_user)
-    await db.commit()
-    await db.refresh(new_user)
-    
-    return new_user
+    try:
+        # Check if username exists
+        result = await db.execute(select(User).filter(User.username == user_data.username))
+        if result.scalars().first():
+            raise HTTPException(status_code=400, detail="Username already exists")
+        
+        # Check if email exists
+        result = await db.execute(select(User).filter(User.email == user_data.email))
+        if result.scalars().first():
+            raise HTTPException(status_code=400, detail="Email already exists")
+        
+        new_user = User(
+            username=user_data.username,
+            email=user_data.email,
+            hashed_password=get_password_hash(user_data.password),
+            full_name=user_data.full_name,
+            user_type=user_data.user_type,
+            is_active=True
+        )
+        
+        db.add(new_user)
+        await db.commit()
+        await db.refresh(new_user)
+        
+        return new_user
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as e:
+        await db.rollback()
+        print(f"Error creating user: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to create user: {str(e)}")
 
 
 @app.get("/admin/users", response_model=List[UserResponse])
@@ -1698,85 +1817,122 @@ async def create_manager(
     db: AsyncSession = Depends(get_db)
 ):
     """Create a manager and link to a department. If force_reassign=true, will replace existing manager."""
-    # Check if user exists
-    result = await db.execute(select(User).filter(User.id == mgr_data.user_id))
-    if not result.scalars().first():
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    # Check if department exists
-    result = await db.execute(select(Department).filter(Department.id == mgr_data.department_id))
-    if not result.scalars().first():
-        raise HTTPException(status_code=404, detail="Department not found")
-    
-    # Generate manager_id (3-digit format)
-    all_managers_result = await db.execute(select(Manager))
-    all_managers = all_managers_result.scalars().all()
-    max_id = max([int(m.manager_id) for m in all_managers if m.manager_id.isdigit()], default=0)
-    new_manager_id = f"{max_id + 1:03d}"
-    
-    # Create new manager
-    manager = Manager(
-        manager_id=new_manager_id,
-        user_id=mgr_data.user_id,
-        department_id=None,  # set via helper for consistency
-        is_active=True
-    )
-    db.add(manager)
-    await db.flush()  # get manager.id for helper
-
-    # If another manager is on this department, either ask for confirmation or reassign
-    existing_result = await db.execute(
-        select(Manager)
-        .filter(
-            and_(
-                Manager.department_id == mgr_data.department_id,
-                Manager.id != manager.id
-            )
+    try:
+        # Check if user exists
+        result = await db.execute(select(User).filter(User.id == mgr_data.user_id))
+        if not result.scalars().first():
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Check if department exists
+        result = await db.execute(select(Department).filter(Department.id == mgr_data.department_id))
+        if not result.scalars().first():
+            raise HTTPException(status_code=404, detail="Department not found")
+        
+        # Generate manager_id (3-digit format)
+        all_managers_result = await db.execute(select(Manager))
+        all_managers = all_managers_result.scalars().all()
+        
+        # Extract numeric manager IDs, handling potential None values
+        numeric_ids = []
+        for m in all_managers:
+            if m.manager_id and m.manager_id.isdigit():
+                try:
+                    numeric_ids.append(int(m.manager_id))
+                except (ValueError, TypeError):
+                    pass
+        
+        max_id = max(numeric_ids) if numeric_ids else 0
+        new_manager_id = f"{max_id + 1:03d}"
+        
+        # Create new manager
+        manager = Manager(
+            manager_id=new_manager_id,
+            user_id=mgr_data.user_id,
+            department_id=None,  # set via helper for consistency
+            is_active=True
         )
-        .options(selectinload(Manager.user))
-    )
-    existing_manager = existing_result.scalars().first()
-    
-    if existing_manager and not force_reassign:
-        # Don't commit; return conflict so frontend can confirm
-        await db.rollback()
-        return {
-            "status": "conflict",
-            "message": "Manager already assigned to this department",
-            "action_required": "reassign",
-            "existing_manager": {
-                "id": existing_manager.id,
-                "manager_id": existing_manager.manager_id,
-                "user_id": existing_manager.user_id,
-                "username": existing_manager.user.username if existing_manager.user else None,
-                "full_name": existing_manager.user.full_name if existing_manager.user else None,
-                "email": existing_manager.user.email if existing_manager.user else None,
-                "department_id": existing_manager.department_id,
-                "is_active": existing_manager.is_active
-            },
-            "new_manager": {
-                "user_id": mgr_data.user_id,
-                "department_id": mgr_data.department_id
+        db.add(manager)
+        await db.flush()  # get manager.id for helper
+
+        # If another manager is on this department, either ask for confirmation or reassign
+        existing_result = await db.execute(
+            select(Manager)
+            .filter(
+                and_(
+                    Manager.department_id == mgr_data.department_id,
+                    Manager.id != manager.id
+                )
+            )
+            .options(selectinload(Manager.user))
+        )
+        existing_manager = existing_result.scalars().first()
+        
+        if existing_manager and not force_reassign:
+            # Get attributes before rollback to avoid greenlet issues
+            existing_id = existing_manager.id
+            existing_manager_id = existing_manager.manager_id
+            existing_user_id = existing_manager.user_id
+            existing_username = existing_manager.user.username if existing_manager.user else None
+            existing_full_name = existing_manager.user.full_name if existing_manager.user else None
+            existing_email = existing_manager.user.email if existing_manager.user else None
+            existing_department_id = existing_manager.department_id
+            existing_is_active = existing_manager.is_active
+            
+            # Don't commit; return conflict so frontend can confirm
+            await db.rollback()
+            return {
+                "status": "conflict",
+                "message": "Manager already assigned to this department",
+                "action_required": "reassign",
+                "existing_manager": {
+                    "id": existing_id,
+                    "manager_id": existing_manager_id,
+                    "user_id": existing_user_id,
+                    "username": existing_username,
+                    "full_name": existing_full_name,
+                    "email": existing_email,
+                    "department_id": existing_department_id,
+                    "is_active": existing_is_active
+                },
+                "new_manager": {
+                    "user_id": mgr_data.user_id,
+                    "department_id": mgr_data.department_id
+                }
             }
+        
+        # Reassign department to the new manager, unassigning any existing ones
+        await assign_manager_to_department(db, manager, mgr_data.department_id)
+        await db.commit()
+        
+        # Reload with relations for safe serialization
+        result = await db.execute(
+            select(Manager)
+            .options(selectinload(Manager.user), selectinload(Manager.department))
+            .filter(Manager.id == manager.id)
+        )
+        manager = result.scalar_one()
+        
+        return {
+            "status": "success",
+            "message": "Manager assigned successfully",
+            "manager": ManagerResponse.model_validate(manager)
         }
-    
-    # Reassign department to the new manager, unassigning any existing ones
-    await assign_manager_to_department(db, manager, mgr_data.department_id)
-    await db.commit()
-    
-    # Reload with relations for safe serialization
-    result = await db.execute(
-        select(Manager)
-        .options(selectinload(Manager.user), selectinload(Manager.department))
-        .filter(Manager.id == manager.id)
-    )
-    manager = result.scalar_one()
-    
-    return {
-        "status": "success",
-        "message": "Manager assigned successfully",
-        "manager": ManagerResponse.model_validate(manager)
-    }
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as e:
+        await db.rollback()
+        print(f"Error creating manager: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to create manager: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error creating manager: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to create manager: {str(e)}")
 
 
 
@@ -2049,6 +2205,7 @@ async def create_employee(
         user_id = user.id
     
     await db.commit()
+<<<<<<< HEAD
 
     # Reload with department eagerly loaded to avoid async lazy-load errors in response serialization
     try:
@@ -2069,6 +2226,16 @@ async def create_employee(
             status_code=500,
             detail="Employee created, but the server couldn't load the saved record for the response. Please refresh and try again."
         )
+=======
+    
+    # Reload with eager loading
+    result = await db.execute(
+        select(Employee)
+        .where(Employee.id == employee.id)
+        .options(selectinload(Employee.department))
+    )
+    employee = result.scalar_one()
+>>>>>>> majorv1/feature/attendance-shift
     
     # Log the action
     try:
@@ -2200,8 +2367,21 @@ async def update_employee(
     employee.updated_at = datetime.utcnow()
     db.add(employee)
     await db.commit()
+<<<<<<< HEAD
 
     # Reload with department eagerly loaded to avoid async lazy-load errors in response serialization
+=======
+    
+    # Re-query with eager loading
+    result = await db.execute(
+        select(Employee)
+        .where(Employee.id == employee_id)
+        .options(selectinload(Employee.department))
+    )
+    employee = result.scalar_one()
+    
+    # Log the action
+>>>>>>> majorv1/feature/attendance-shift
     try:
         result = await db.execute(
             select(Employee)
@@ -2337,19 +2517,24 @@ async def list_roles(
 ):
     """List all roles with their shifts (eager loaded)"""
     stmt = select(Role).options(
-        selectinload(Role.shifts),
-        with_loader_criteria(Shift, Shift.is_active == True)
+        selectinload(Role.shifts)
     )
 
-    if current_user.user_type == UserType.ADMIN or current_user.user_type == UserType.SUB_ADMIN:
+    # Check if user is admin or sub_admin
+    is_admin_or_sub = current_user.user_type in [UserType.ADMIN, UserType.SUB_ADMIN]
+    
+    if is_admin_or_sub:
         # Admins can see all active roles, or filter by department if provided
         if department_id:
             stmt = stmt.filter(Role.department_id == department_id, Role.is_active == True)
         else:
             stmt = stmt.filter(Role.is_active == True)
     else:
-        # For managers, use get_manager_department helper
+        # For managers and others, use get_manager_department helper
         manager_dept = await get_manager_department(current_user, db)
+        if manager_dept is None:
+            # Manager has no department assigned, return empty list
+            return []
         stmt = stmt.filter(
             Role.department_id == manager_dept,
             Role.is_active == True
@@ -2367,18 +2552,20 @@ async def get_role_detail(
 ):
     """Get role with all shifts"""
     stmt = select(Role).options(
-        selectinload(Role.shifts),
-        with_loader_criteria(Shift, Shift.is_active == True)
+        selectinload(Role.shifts)
     ).filter(Role.id == role_id, Role.is_active == True)
 
-    if current_user.user_type != UserType.ADMIN:
+    if current_user.user_type not in [UserType.ADMIN, UserType.SUB_ADMIN]:
         manager_dept = await get_manager_department(current_user, db)
+        if manager_dept is None:
+            raise HTTPException(status_code=404, detail="Role not found")
         stmt = stmt.filter(Role.department_id == manager_dept)
 
     result = await db.execute(stmt)
     role = result.scalars().first()
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
+    
     return role
 
 
@@ -2698,7 +2885,17 @@ async def check_out(
         check_in.notes = check_out_data.notes
 
         await db.commit()
-        await db.refresh(check_in, ['employee', 'schedule'])
+        
+        # Re-query with eager loading
+        result = await db.execute(
+            select(CheckInOut)
+            .where(CheckInOut.id == check_in.id)
+            .options(
+                selectinload(CheckInOut.employee).selectinload(Employee.department),
+                selectinload(CheckInOut.schedule).selectinload(Schedule.role)
+            )
+        )
+        check_in = result.scalar_one()
 
         # Create or update Attendance record with overtime calculation
         try:
@@ -2735,8 +2932,11 @@ async def check_out(
                 break_minutes = 0
                 if check_in.schedule and check_in.schedule.role:
                     role_break = check_in.schedule.role.break_minutes or 0
-                    # Only apply break if total time is at least the break duration
-                    if total_minutes >= role_break:
+                    # Only apply break if total time is significantly longer than the break duration
+                    # For example: if break is 60 min, only apply it for shifts > 4 hours
+                    # This prevents short shifts from having the full break deducted
+                    min_time_for_break = role_break + 120  # Minimum 2 hours extra time needed to take break
+                    if total_minutes >= min_time_for_break:
                         break_minutes = role_break
                 
                 worked_minutes = max(0, total_minutes - break_minutes)
@@ -4717,20 +4917,27 @@ async def create_leave_request(
     db.add(leave_request)
     await db.commit()
     
-    # Refresh with eager loading of employee relationship
-    await db.refresh(leave_request, attribute_names=['employee'])
+    # Reload with eager loading of employee and department relationships
+    result = await db.execute(
+        select(LeaveRequest)
+        .where(LeaveRequest.id == leave_request.id)
+        .options(
+            selectinload(LeaveRequest.employee).selectinload(Employee.department)
+        )
+    )
+    leave_request = result.scalar_one()
     
     # Send notification to manager
-    if employee and employee.department_id:
+    if leave_request.employee and leave_request.employee.department_id:
         # Get manager for this employee's department
         manager_result = await db.execute(
-            select(Manager).filter(Manager.department_id == employee.department_id)
+            select(Manager).filter(Manager.department_id == leave_request.employee.department_id)
         )
         manager = manager_result.scalars().first()
         
         if manager and manager.user_id:
-            notification_title = f"📝 Leave Request from {employee.first_name} {employee.last_name}"
-            notification_message = f"{employee.first_name} {employee.last_name} has requested {leave_data.leave_type} leave from {leave_data.start_date} to {leave_data.end_date}."
+            notification_title = f"📝 Leave Request from {leave_request.employee.first_name} {leave_request.employee.last_name}"
+            notification_message = f"{leave_request.employee.first_name} {leave_request.employee.last_name} has requested {leave_data.leave_type} leave from {leave_data.start_date} to {leave_data.end_date}."
             await create_notification(
                 user_id=manager.user_id,
                 title=notification_title,
@@ -5950,6 +6157,7 @@ async def create_comp_off_request(
     db.add(comp_off_request)
     await db.commit()
     
+<<<<<<< HEAD
     # Reload with eager loading of employee + department to avoid lazy loading in response
     refreshed_result = await db.execute(
         select(CompOffRequest)
@@ -5957,18 +6165,29 @@ async def create_comp_off_request(
         .filter(CompOffRequest.id == comp_off_request.id)
     )
     comp_off_request = refreshed_result.scalar_one_or_none() or comp_off_request
+=======
+    # Reload with eager loading of employee and department relationships
+    result = await db.execute(
+        select(CompOffRequest)
+        .where(CompOffRequest.id == comp_off_request.id)
+        .options(
+            selectinload(CompOffRequest.employee).selectinload(Employee.department)
+        )
+    )
+    comp_off_request = result.scalar_one()
+>>>>>>> majorv1/feature/attendance-shift
     
     # Send notification to manager if employee created the request
-    if current_user.user_type == UserType.EMPLOYEE and employee and employee.department_id:
+    if current_user.user_type == UserType.EMPLOYEE and comp_off_request.employee and comp_off_request.employee.department_id:
         # Get manager for this employee's department
         manager_result = await db.execute(
-            select(Manager).filter(Manager.department_id == employee.department_id)
+            select(Manager).filter(Manager.department_id == comp_off_request.employee.department_id)
         )
         manager = manager_result.scalars().first()
         
         if manager and manager.user_id:
-            notification_title = f"📝 Comp-Off Request from {employee.first_name} {employee.last_name}"
-            notification_message = f"{employee.first_name} {employee.last_name} has requested comp-off for {comp_off_data.comp_off_date}."
+            notification_title = f"📝 Comp-Off Request from {comp_off_request.employee.first_name} {comp_off_request.employee.last_name}"
+            notification_message = f"{comp_off_request.employee.first_name} {comp_off_request.employee.last_name} has requested comp-off for {comp_off_data.comp_off_date}."
             await create_notification(
                 user_id=manager.user_id,
                 title=notification_title,
@@ -6861,8 +7080,13 @@ async def send_message(
     db.add(message)
     await db.commit()
     
-    # Refresh and eagerly load relationships
-    await db.refresh(message, ['sender', 'recipient'])
+    # Re-query with eager loading
+    result = await db.execute(
+        select(Message)
+        .where(Message.id == message.id)
+        .options(selectinload(Message.sender), selectinload(Message.recipient))
+    )
+    message = result.scalar_one()
     
     return message
 
@@ -7875,7 +8099,15 @@ async def generate_schedules(
                 # Determine if this shift should run on this day
                 should_skip = False
                 
-                if shift.schedule_config and isinstance(shift.schedule_config, dict):
+                # Check date range first (NEW)
+                if shift.from_date and shift.to_date:
+                    # Shift has a specific date range
+                    if current_date < shift.from_date or current_date > shift.to_date:
+                        should_skip = True
+                        print(f"[DEBUG] ✗ Shift {shift.id} ({shift.name}) - Outside date range ({shift.from_date} to {shift.to_date}), skipping {current_date}", flush=True)
+                    else:
+                        print(f"[DEBUG] ✓ Shift {shift.id} ({shift.name}) - Within date range ({shift.from_date} to {shift.to_date}), processing {current_date}", flush=True)
+                elif shift.schedule_config and isinstance(shift.schedule_config, dict):
                     # Shift has a schedule_config with day configuration
                     day_config = shift.schedule_config.get(day_name, {})
                     is_day_enabled = day_config.get('enabled', False) if isinstance(day_config, dict) else False
@@ -7888,7 +8120,7 @@ async def generate_schedules(
                 else:
                     # No schedule_config or invalid format - skip to prevent unintended assignments
                     should_skip = True
-                    print(f"[DEBUG] ✗ Shift {shift.id} ({shift.name}) - No valid schedule_config, skipping {day_name}", flush=True)
+                    print(f"[DEBUG] ✗ Shift {shift.id} ({shift.name}) - No valid schedule_config or date range, skipping {day_name}", flush=True)
 
                 if should_skip:
                     continue
@@ -7898,6 +8130,40 @@ async def generate_schedules(
                 assigned_count = 0
                 
                 for emp in eligible_for_shift[shift.id]:
+                    # Check if employee has preference form with leave days for this period
+                    # If they do, skip assigning shifts on their preferred leave days
+                    current_day_of_week = current_date.weekday()  # 0=Mon, 6=Sun
+                    
+                    employee_leave_days = []
+                    pref_form_result = await db.execute(
+                        select(EmployeeShiftPreference)
+                        .filter(
+                            EmployeeShiftPreference.employee_id == emp.id,
+                            EmployeeShiftPreference.preference_form_id.in_(
+                                select(ShiftPreferenceForm.id)
+                                .join(ShiftPeriod)
+                                .filter(
+                                    ShiftPreferenceForm.department_id == department_id,
+                                    ShiftPreferenceForm.status == 'active',
+                                    ShiftPeriod.period_start <= end_date,
+                                    ShiftPeriod.period_end >= start_date
+                                )
+                            )
+                        )
+                    )
+                    pref_form = pref_form_result.scalars().first()
+                    
+                    if pref_form:
+                        # Employee has submitted preferences for this period
+                        if pref_form.leave_day_1 is not None:
+                            employee_leave_days.append(pref_form.leave_day_1)
+                        if pref_form.leave_day_2 is not None:
+                            employee_leave_days.append(pref_form.leave_day_2)
+                    
+                    if current_day_of_week in employee_leave_days:
+                        print(f"[DEBUG] ✗ {emp.first_name} prefers {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][current_day_of_week]} off, skipping shift {shift.id} on {current_date}", flush=True)
+                        continue  # Skip assigning shift on this employee's preferred leave day
+                    
                     # Check leave - if employee is on approved leave, mark them as leave (not shift)
                     leave_result = await db.execute(
                         select(LeaveRequest)
@@ -8165,6 +8431,36 @@ async def generate_schedules(
                             print(f"[DEBUG] ✗ {emp.first_name} failed 5-shifts validation on {current_date}: {shifts_error}", flush=True)
                             continue  # Skip this employee for this shift due to weekly shift limit
                         
+                        # ===== NEW: Check if employee has submitted preferences for shifts in this period =====
+                        # If they have preferences, prioritize shifts they prefer
+                        prefers_this_shift = True  # Default to true if no preference submitted
+                        preference_result = await db.execute(
+                            select(EmployeeShiftPreference)
+                            .filter(
+                                EmployeeShiftPreference.employee_id == emp.id,
+                                EmployeeShiftPreference.preference_form_id.in_(
+                                    select(ShiftPreferenceForm.id)
+                                    .join(ShiftPeriod)
+                                    .filter(
+                                        ShiftPreferenceForm.department_id == department_id,
+                                        ShiftPreferenceForm.status == 'active',
+                                        # Check if the shift period overlaps with the schedule date range
+                                        ShiftPeriod.period_start <= end_date,
+                                        ShiftPeriod.period_end >= start_date
+                                    )
+                                )
+                            )
+                        )
+                        preference = preference_result.scalars().first()
+                        
+                        if preference and preference.preferred_shifts:
+                            # Employee has submitted preferences
+                            if shift.id not in preference.preferred_shifts:
+                                # This shift is NOT in their preferred list
+                                print(f"[DEBUG] {emp.first_name} did not prefer shift {shift.id} ({shift.name}) on {current_date}, deprioritizing", flush=True)
+                                prefers_this_shift = False
+                                # Continue anyway but log it - we'll still assign if needed, but prefer those who like it
+                        
                         print(f"[DEBUG] ✓ Creating schedule for {emp.first_name} on {current_date}", flush=True)
                         # Create schedule
                         schedule = Schedule(
@@ -8194,7 +8490,7 @@ async def generate_schedules(
 
         await db.commit()
 
-        feedback.insert(0, f"Successfully generated {schedules_created} schedules")
+        feedback.insert(0, f"✓ Successfully generated {schedules_created} schedules (considering employee preferences)")
         
         # Add overtime warnings to feedback
         if overtime_warnings:
@@ -8280,7 +8576,494 @@ async def check_schedule_conflicts(
     }
 
 
-# ==================== ATTENDANCE MANAGEMENT ====================
+# =============== SHIFT PREFERENCE APIs ===============
+
+@app.post("/shift-periods", response_model=ShiftPeriodResponse)
+async def create_shift_period(
+    period_data: ShiftPeriodCreate,
+    current_user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db)
+):
+    """Manager/Admin creates a shift period for preference collection"""
+    # Validate dates
+    if period_data.period_start >= period_data.period_end:
+        raise HTTPException(status_code=400, detail="Period end must be after period start")
+    
+    # Determine department and manager_id based on user type
+    if current_user.user_type == UserType.ADMIN:
+        # Admins can create periods (manager_id will be None)
+        manager_dept = 1  # Default to department 1, or could be parameterized
+        manager_id = None
+    elif current_user.user_type == UserType.MANAGER:
+        manager_dept = await get_manager_department(current_user, db)
+        if not manager_dept:
+            raise HTTPException(status_code=400, detail="Manager department not found")
+        manager_result = await db.execute(
+            select(Manager).filter(Manager.user_id == current_user.id)
+        )
+        manager = manager_result.scalars().first()
+        if not manager:
+            raise HTTPException(status_code=400, detail="Manager record not found")
+        manager_id = manager.id
+    elif current_user.user_type == UserType.SUB_ADMIN:
+        manager_dept = 1  # Default to department 1
+        manager_id = None
+    else:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    period = ShiftPeriod(
+        department_id=manager_dept,
+        manager_id=manager_id,
+        name=period_data.name,
+        description=period_data.description,
+        period_start=period_data.period_start,
+        period_end=period_data.period_end
+    )
+    db.add(period)
+    await db.commit()
+    await db.refresh(period)
+    
+    return period
+
+
+@app.get("/shift-periods")
+async def list_shift_periods(
+    current_user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db)
+):
+    """List all shift periods for manager's department"""
+    try:
+        if current_user.user_type == UserType.ADMIN:
+            result = await db.execute(select(ShiftPeriod))
+        elif current_user.user_type == UserType.MANAGER:
+            manager_dept = await get_manager_department(current_user, db)
+            if not manager_dept:
+                raise HTTPException(status_code=400, detail="Manager department not found")
+            result = await db.execute(
+                select(ShiftPeriod).filter(ShiftPeriod.department_id == manager_dept)
+            )
+        elif current_user.user_type == UserType.SUB_ADMIN:
+            result = await db.execute(select(ShiftPeriod))
+        else:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        periods = result.scalars().all()
+        return periods
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Failed to list shift periods: {str(e)}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Failed to load periods: {str(e)}")
+
+
+@app.get("/shift-periods/{period_id}", response_model=ShiftPeriodResponse)
+async def get_shift_period(
+    period_id: int,
+    current_user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get shift period details"""
+    result = await db.execute(
+        select(ShiftPeriod).filter(ShiftPeriod.id == period_id)
+    )
+    period = result.scalars().first()
+    
+    if not period:
+        raise HTTPException(status_code=404, detail="Shift period not found")
+    
+    if current_user.user_type == UserType.MANAGER:
+        manager_dept = await get_manager_department(current_user, db)
+        if period.department_id != manager_dept:
+            raise HTTPException(status_code=403, detail="Cannot access period from other department")
+    
+    return period
+
+
+@app.post("/shift-preference-forms", response_model=ShiftPreferenceFormResponse)
+async def create_preference_form(
+    form_data: ShiftPreferenceFormCreate,
+    current_user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db)
+):
+    """Manager creates a preference form for a shift period"""
+    try:
+        # Verify shift period exists
+        period_result = await db.execute(
+            select(ShiftPeriod).filter(ShiftPeriod.id == form_data.shift_period_id)
+        )
+        period = period_result.scalars().first()
+        
+        if not period:
+            raise HTTPException(status_code=404, detail="Shift period not found")
+        
+        if current_user.user_type == UserType.MANAGER:
+            manager_dept = await get_manager_department(current_user, db)
+            if period.department_id != manager_dept:
+                raise HTTPException(status_code=403, detail="Can only create forms for your department")
+        
+        # Get manager record
+        manager_result = await db.execute(
+            select(Manager).filter(Manager.user_id == current_user.id)
+        )
+        manager = manager_result.scalars().first()
+        
+        if not manager:
+            raise HTTPException(status_code=400, detail="Manager record not found")
+        
+        # Verify all shifts exist and belong to this department
+        if form_data.available_shifts:
+            shifts_result = await db.execute(
+                select(Shift).filter(Shift.id.in_(form_data.available_shifts))
+            )
+            shifts = shifts_result.scalars().all()
+            if len(shifts) != len(form_data.available_shifts):
+                raise HTTPException(status_code=400, detail="Some shifts not found")
+        
+        # Convert available_shifts to list of integers
+        available_shifts_list = list(form_data.available_shifts) if form_data.available_shifts else []
+        
+        form = ShiftPreferenceForm(
+            shift_period_id=form_data.shift_period_id,
+            department_id=period.department_id,
+            manager_id=manager.id,
+            status='active',
+            available_shifts=available_shifts_list
+        )
+        db.add(form)
+        await db.commit()
+        await db.refresh(form)
+        
+        # Send notifications to all employees in this department
+        try:
+            dept_employees_result = await db.execute(
+                select(Employee).filter(
+                    Employee.department_id == period.department_id,
+                    Employee.is_active == True
+                )
+            )
+            employees = dept_employees_result.scalars().all()
+            
+            for emp in employees:
+                if emp.user_id:
+                    notification = Notification(
+                        user_id=emp.user_id,
+                        title="Shift Preference Form",
+                        message=f"A new shift preference form is available: {period.name}. Please submit your preferences.",
+                        type="shift_preference",
+                        reference_id=form.id,
+                        is_read=False
+                    )
+                    db.add(notification)
+            
+            await db.commit()
+        except Exception as notif_err:
+            print(f"Warning: Failed to send notifications: {str(notif_err)}")
+            # Continue anyway - don't fail the whole request if notifications fail
+        
+        return form
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error creating preference form: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
+@app.get("/shift-preference-forms")
+async def list_preference_forms(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get active preference forms for employee's department"""
+    try:
+        # Get employee record
+        emp_result = await db.execute(
+            select(Employee).filter(Employee.user_id == current_user.id)
+        )
+        employee = emp_result.scalars().first()
+        
+        if not employee:
+            raise HTTPException(status_code=400, detail="Employee record not found")
+        
+        # Get active preference forms for this employee's department
+        result = await db.execute(
+            select(ShiftPreferenceForm)
+            .filter(
+                ShiftPreferenceForm.department_id == employee.department_id,
+                ShiftPreferenceForm.status == 'active'
+            )
+        )
+        forms = result.scalars().all()
+        
+        # Return forms with their shift details
+        forms_data = []
+        for form in forms:
+            # Get the shift period details
+            period_result = await db.execute(
+                select(ShiftPeriod).filter(ShiftPeriod.id == form.shift_period_id)
+            )
+            period = period_result.scalars().first()
+            
+            # Get shift details
+            shifts_result = await db.execute(
+                select(Shift).filter(Shift.id.in_(form.available_shifts)) if form.available_shifts else select(Shift).filter(False)
+            )
+            shifts = shifts_result.scalars().all()
+            
+            forms_data.append({
+                "id": form.id,
+                "shift_period_id": form.shift_period_id,
+                "period": {
+                    "name": period.name if period else "N/A",
+                    "description": period.description if period else None,
+                    "period_start": period.period_start.isoformat() if period else None,
+                    "period_end": period.period_end.isoformat() if period else None
+                } if period else None,
+                "status": form.status,
+                "available_shifts": [
+                    {
+                        "id": shift.id,
+                        "name": shift.name,
+                        "start_time": shift.start_time,
+                        "end_time": shift.end_time
+                    }
+                    for shift in shifts
+                ],
+                "created_at": form.created_at.isoformat()
+            })
+        
+        return forms_data
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Failed to list preference forms: {str(e)}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Failed to load forms: {str(e)}")
+
+
+@app.get("/shift-preference-forms/{form_id}")
+async def get_preference_form(
+    form_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get preference form and shifts"""
+    result = await db.execute(
+        select(ShiftPreferenceForm).filter(ShiftPreferenceForm.id == form_id)
+    )
+    form = result.scalars().first()
+    
+    if not form:
+        raise HTTPException(status_code=404, detail="Preference form not found")
+    
+    # Get shift details
+    shifts_result = await db.execute(
+        select(Shift).filter(Shift.id.in_(form.available_shifts)) if form.available_shifts else select(Shift).filter(False)
+    )
+    shifts = shifts_result.scalars().all()
+    
+    return {
+        "id": form.id,
+        "shift_period_id": form.shift_period_id,
+        "status": form.status,
+        "available_shifts": [
+            {
+                "id": shift.id,
+                "name": shift.name,
+                "start_time": shift.start_time,
+                "end_time": shift.end_time
+            }
+            for shift in shifts
+        ],
+        "created_at": form.created_at
+    }
+
+
+@app.post("/employee-shift-preferences", response_model=EmployeeShiftPreferenceResponse)
+async def create_employee_preference(
+    pref_data: EmployeeShiftPreferenceCreate,
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db)
+):
+    """Employee submits their shift and leave day preferences"""
+    # Get employee record
+    emp_result = await db.execute(
+        select(Employee).filter(Employee.user_id == current_user.id)
+    )
+    employee = emp_result.scalars().first()
+    
+    if not employee:
+        raise HTTPException(status_code=400, detail="Employee record not found")
+    
+    # Verify preference form exists and is active
+    form_result = await db.execute(
+        select(ShiftPreferenceForm).filter(ShiftPreferenceForm.id == pref_data.preference_form_id)
+    )
+    form = form_result.scalars().first()
+    
+    if not form:
+        raise HTTPException(status_code=404, detail="Preference form not found")
+    
+    if form.status != 'active':
+        raise HTTPException(status_code=400, detail="Preference form is no longer active")
+    
+    # Validate leave days are different
+    if pref_data.leave_day_1 == pref_data.leave_day_2:
+        raise HTTPException(status_code=400, detail="Leave days must be different")
+    
+    if pref_data.leave_day_1 < 0 or pref_data.leave_day_1 > 6 or pref_data.leave_day_2 < 0 or pref_data.leave_day_2 > 6:
+        raise HTTPException(status_code=400, detail="Leave days must be between 0-6 (Mon-Sun)")
+    
+    # Check if employee already submitted for this form
+    existing_result = await db.execute(
+        select(EmployeeShiftPreference).filter(
+            EmployeeShiftPreference.preference_form_id == pref_data.preference_form_id,
+            EmployeeShiftPreference.employee_id == employee.id
+        )
+    )
+    existing = existing_result.scalars().first()
+    
+    if existing:
+        # Update existing preference
+        existing.preferred_shifts = pref_data.preferred_shifts
+        existing.leave_day_1 = pref_data.leave_day_1
+        existing.leave_day_2 = pref_data.leave_day_2
+        existing.notes = pref_data.notes
+        existing.submitted_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(existing)
+        return existing
+    
+    # Create new preference
+    pref = EmployeeShiftPreference(
+        preference_form_id=pref_data.preference_form_id,
+        employee_id=employee.id,
+        department_id=employee.department_id,
+        preferred_shifts=pref_data.preferred_shifts,
+        leave_day_1=pref_data.leave_day_1,
+        leave_day_2=pref_data.leave_day_2,
+        notes=pref_data.notes,
+        submitted_at=datetime.utcnow()
+    )
+    db.add(pref)
+    await db.commit()
+    await db.refresh(pref)
+    
+    # Notify manager that preference was submitted
+    manager_result = await db.execute(
+        select(User).filter(User.id == form.manager_id)
+    )
+    
+    return pref
+
+
+@app.get("/employee-shift-preferences/{form_id}")
+async def get_employee_preferences(
+    form_id: int,
+    current_user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db)
+):
+    """Manager views all employee preferences for a form"""
+    # Verify form exists and manager owns it
+    form_result = await db.execute(
+        select(ShiftPreferenceForm).filter(ShiftPreferenceForm.id == form_id)
+    )
+    form = form_result.scalars().first()
+    
+    if not form:
+        raise HTTPException(status_code=404, detail="Preference form not found")
+    
+    if current_user.user_type == UserType.MANAGER:
+        manager_dept = await get_manager_department(current_user, db)
+        if form.department_id != manager_dept:
+            raise HTTPException(status_code=403, detail="Cannot access preferences from other department")
+    
+    # Get all preferences for this form
+    prefs_result = await db.execute(
+        select(EmployeeShiftPreference)
+        .filter(EmployeeShiftPreference.preference_form_id == form_id)
+        .options(selectinload(EmployeeShiftPreference.employee))
+    )
+    preferences = prefs_result.scalars().all()
+    
+    # Get shift details for reference
+    shifts_result = await db.execute(
+        select(Shift).filter(Shift.id.in_(form.available_shifts)) if form.available_shifts else select(Shift).filter(False)
+    )
+    shifts = shifts_result.scalars().all()
+    
+    shift_map = {shift.id: {"name": shift.name, "start_time": shift.start_time, "end_time": shift.end_time} for shift in shifts}
+    
+    return {
+        "form_id": form_id,
+        "total_responses": len(preferences),
+        "preferences": [
+            {
+                "id": pref.id,
+                "employee_id": pref.employee_id,
+                "employee_name": f"{pref.employee.first_name} {pref.employee.last_name}" if pref.employee else "N/A",
+                "preferred_shifts": [shift_map.get(sid, {}) for sid in pref.preferred_shifts],
+                "leave_day_1": pref.leave_day_1,
+                "leave_day_2": pref.leave_day_2,
+                "notes": pref.notes,
+                "submitted_at": pref.submitted_at.isoformat() if pref.submitted_at else None
+            }
+            for pref in preferences
+        ]
+    }
+
+
+@app.put("/employee-shift-preferences/{pref_id}", response_model=EmployeeShiftPreferenceResponse)
+async def update_employee_preference(
+    pref_id: int,
+    update_data: EmployeeShiftPreferenceUpdate,
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db)
+):
+    """Employee updates their shift and leave day preferences"""
+    pref_result = await db.execute(
+        select(EmployeeShiftPreference).filter(EmployeeShiftPreference.id == pref_id)
+    )
+    pref = pref_result.scalars().first()
+    
+    if not pref:
+        raise HTTPException(status_code=404, detail="Preference not found")
+    
+    # Verify employee owns this preference
+    emp_result = await db.execute(
+        select(Employee).filter(Employee.user_id == current_user.id)
+    )
+    employee = emp_result.scalars().first()
+    
+    if pref.employee_id != employee.id:
+        raise HTTPException(status_code=403, detail="Cannot update other employee's preferences")
+    
+    # Verify form is still active
+    form_result = await db.execute(
+        select(ShiftPreferenceForm).filter(ShiftPreferenceForm.id == pref.preference_form_id)
+    )
+    form = form_result.scalars().first()
+    
+    if form.status != 'active':
+        raise HTTPException(status_code=400, detail="Preference form is no longer active")
+    
+    # Validate leave days are different
+    if update_data.leave_day_1 == update_data.leave_day_2:
+        raise HTTPException(status_code=400, detail="Leave days must be different")
+    
+    pref.preferred_shifts = update_data.preferred_shifts
+    pref.leave_day_1 = update_data.leave_day_1
+    pref.leave_day_2 = update_data.leave_day_2
+    pref.notes = update_data.notes
+    pref.submitted_at = datetime.utcnow()
+    
+    await db.commit()
+    await db.refresh(pref)
+    
+    return pref
+
+
+
 
 @app.post("/attendance/record", response_model=AttendanceResponse)
 async def record_attendance(
@@ -8747,7 +9530,9 @@ async def create_shift(
         priority=shift.priority,
         min_emp=shift.min_emp,
         max_emp=shift.max_emp,
-        schedule_config=shift.schedule_config
+        schedule_config=shift.schedule_config,
+        from_date=shift.from_date,
+        to_date=shift.to_date
     )
     db.add(new_shift)
     await db.commit()
@@ -8892,19 +9677,26 @@ async def create_overtime_request(
     
     db.add(ot_request)
     await db.commit()
-    await db.refresh(ot_request)
+    
+    # Reload with eager loading
+    result = await db.execute(
+        select(OvertimeRequest)
+        .where(OvertimeRequest.id == ot_request.id)
+        .options(selectinload(OvertimeRequest.employee).selectinload(Employee.department))
+    )
+    ot_request = result.scalar_one()
     
     # Send notification to manager
-    if employee and employee.department_id:
+    if ot_request.employee and ot_request.employee.department_id:
         # Get manager for this employee's department
         manager_result = await db.execute(
-            select(Manager).filter(Manager.department_id == employee.department_id)
+            select(Manager).filter(Manager.department_id == ot_request.employee.department_id)
         )
         manager = manager_result.scalars().first()
         
         if manager and manager.user_id:
-            notification_title = f"📝 Overtime Request from {employee.first_name} {employee.last_name}"
-            notification_message = f"{employee.first_name} {employee.last_name} has requested overtime for {request_data.request_date} ({request_data.request_hours} hours)."
+            notification_title = f"📝 Overtime Request from {ot_request.employee.first_name} {ot_request.employee.last_name}"
+            notification_message = f"{ot_request.employee.first_name} {ot_request.employee.last_name} has requested overtime for {request_data.request_date} ({request_data.request_hours} hours)."
             await create_notification(
                 user_id=manager.user_id,
                 title=notification_title,
@@ -8926,7 +9718,9 @@ async def list_overtime_requests(
     db: AsyncSession = Depends(get_db)
 ):
     """List overtime requests. Managers see pending requests, employees see their own"""
-    query = select(OvertimeRequest)
+    query = select(OvertimeRequest).options(
+        selectinload(OvertimeRequest.employee).selectinload(Employee.department)
+    )
     
     if current_user.user_type == UserType.EMPLOYEE:
         # Employees see their own requests
@@ -8972,7 +9766,9 @@ async def approve_overtime_request(
 ):
     """Manager approves an overtime request"""
     result = await db.execute(
-        select(OvertimeRequest).filter(OvertimeRequest.id == request_id)
+        select(OvertimeRequest)
+        .where(OvertimeRequest.id == request_id)
+        .options(selectinload(OvertimeRequest.employee).selectinload(Employee.department))
     )
     ot_request = result.scalars().first()
     
@@ -8980,13 +9776,8 @@ async def approve_overtime_request(
         raise HTTPException(status_code=404, detail="Overtime request not found")
     
     # Verify manager's authority over employee's department
-    emp_result = await db.execute(
-        select(Employee).filter(Employee.id == ot_request.employee_id)
-    )
-    employee = emp_result.scalars().first()
-    
     manager_dept = await get_manager_department(current_user, db)
-    if not manager_dept or employee.department_id != manager_dept:
+    if not manager_dept or ot_request.employee.department_id != manager_dept:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     ot_request.status = OvertimeStatus.APPROVED
@@ -8995,17 +9786,21 @@ async def approve_overtime_request(
     
     # Get employee user for notification
     emp_user_result = await db.execute(
-        select(User).filter(User.id == employee.user_id)
+        select(User).filter(User.id == ot_request.employee.user_id)
     )
     emp_user = emp_user_result.scalars().first()
     
     # Create notification for employee
     if emp_user:
         notification_title = f"✅ Overtime Request Approved"
+<<<<<<< HEAD
         notification_message = (
             f"Your overtime request for {ot_request.request_date} "
             f"({ot_request.request_hours} hours) has been approved."
         )
+=======
+        notification_message = f"Your overtime request for {ot_request.request_date} ({ot_request.request_hours} hours) has been approved."
+>>>>>>> majorv1/feature/attendance-shift
         await create_notification(
             user_id=emp_user.id,
             title=notification_title,
@@ -9016,7 +9811,14 @@ async def approve_overtime_request(
         )
     
     await db.commit()
-    await db.refresh(ot_request)
+    
+    # Reload with eager loading
+    result = await db.execute(
+        select(OvertimeRequest)
+        .where(OvertimeRequest.id == request_id)
+        .options(selectinload(OvertimeRequest.employee).selectinload(Employee.department))
+    )
+    ot_request = result.scalar_one()
     
     return ot_request
 
@@ -9030,7 +9832,9 @@ async def reject_overtime_request(
 ):
     """Manager rejects an overtime request"""
     result = await db.execute(
-        select(OvertimeRequest).filter(OvertimeRequest.id == request_id)
+        select(OvertimeRequest)
+        .where(OvertimeRequest.id == request_id)
+        .options(selectinload(OvertimeRequest.employee).selectinload(Employee.department))
     )
     ot_request = result.scalars().first()
     
@@ -9038,13 +9842,8 @@ async def reject_overtime_request(
         raise HTTPException(status_code=404, detail="Overtime request not found")
     
     # Verify manager's authority over employee's department
-    emp_result = await db.execute(
-        select(Employee).filter(Employee.id == ot_request.employee_id)
-    )
-    employee = emp_result.scalars().first()
-    
     manager_dept = await get_manager_department(current_user, db)
-    if not manager_dept or employee.department_id != manager_dept:
+    if not manager_dept or ot_request.employee.department_id != manager_dept:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     ot_request.status = OvertimeStatus.REJECTED
@@ -9053,17 +9852,21 @@ async def reject_overtime_request(
     
     # Get employee user for notification
     emp_user_result = await db.execute(
-        select(User).filter(User.id == employee.user_id)
+        select(User).filter(User.id == ot_request.employee.user_id)
     )
     emp_user = emp_user_result.scalars().first()
     
     # Create notification for employee
     if emp_user:
         notification_title = f"❌ Overtime Request Rejected"
+<<<<<<< HEAD
         notification_message = (
             f"Your overtime request for {ot_request.request_date} "
             f"({ot_request.request_hours} hours) has been rejected."
         )
+=======
+        notification_message = f"Your overtime request for {ot_request.request_date} ({ot_request.request_hours} hours) has been rejected."
+>>>>>>> majorv1/feature/attendance-shift
         if rejection_data.get("approval_notes"):
             notification_message += f" Reason: {rejection_data.get('approval_notes')}"
         await create_notification(
@@ -9076,7 +9879,14 @@ async def reject_overtime_request(
         )
     
     await db.commit()
-    await db.refresh(ot_request)
+    
+    # Re-query with eager loading
+    result = await db.execute(
+        select(OvertimeRequest)
+        .where(OvertimeRequest.id == request_id)
+        .options(selectinload(OvertimeRequest.employee).selectinload(Employee.department))
+    )
+    ot_request = result.scalar_one()
     
     return ot_request
 

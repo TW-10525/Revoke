@@ -43,7 +43,7 @@ export const login = async (username, password) => {
   params.append('password', password);
 
   try {
-    const response = await axios.post(`${API_URL}/token`, params, {
+    const response = await api.post('/token', params, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
     return response.data;
@@ -103,7 +103,7 @@ export const deleteEmployee = (id, hardDelete = false) =>
 export const createRole = (roleData) => api.post('/roles', roleData);
 export const listRoles = (departmentId = null) => {
   if (departmentId) {
-    return api.get(`/roles?department_id=${departmentId}`);
+    return api.get('/roles', { params: { department_id: departmentId } });
   }
   return api.get('/roles');
 };
