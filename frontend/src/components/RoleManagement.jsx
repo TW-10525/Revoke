@@ -23,7 +23,6 @@ const RoleManagement = () => {
     priority: 50,
     priority_percentage: 50,
     break_minutes: 60,
-    weekend_required: false,
     required_skills: []
   });
 
@@ -110,7 +109,6 @@ const RoleManagement = () => {
         priority: roleForm.priority,
         priority_percentage: roleForm.priority_percentage,
         break_minutes: roleForm.break_minutes,
-        weekend_required: roleForm.weekend_required,
         required_skills: roleForm.required_skills
       };
 
@@ -134,7 +132,6 @@ const RoleManagement = () => {
         priority: 50,
         priority_percentage: 50,
         break_minutes: 60,
-        weekend_required: false,
         required_skills: []
       });
 
@@ -156,7 +153,6 @@ const RoleManagement = () => {
       priority: role.priority || 50,
       priority_percentage: role.priority_percentage || 50,
       break_minutes: role.break_minutes || 60,
-      weekend_required: role.weekend_required || false,
       required_skills: role.required_skills || []
     });
     setShowRoleForm(true);
@@ -230,7 +226,6 @@ const RoleManagement = () => {
                 priority: 50,
                 priority_percentage: 50,
                 break_minutes: 60,
-                weekend_required: false,
                 required_skills: []
               });
               setValidationErrors({});
@@ -295,14 +290,6 @@ const RoleManagement = () => {
                       <div className="bg-cyan-50 rounded p-2">
                         <div className="text-xs text-cyan-600 font-semibold">{t('requiredCount')}</div>
                         <div className="text-sm font-bold text-cyan-900">{role.required_count}</div>
-                      </div>
-                      <div className={`rounded p-2 ${role.weekend_required ? 'bg-red-50' : 'bg-gray-50'}`}>
-                        <div className={`text-xs font-semibold ${role.weekend_required ? 'text-red-600' : 'text-gray-600'}`}>
-                          {t('weekends')}
-                        </div>
-                        <div className={`text-sm font-bold ${role.weekend_required ? 'text-red-900' : 'text-gray-900'}`}>
-                          {role.weekend_required ? 'Required' : 'Not Required'}
-                        </div>
                       </div>
                     </div>
 
@@ -576,21 +563,6 @@ const RoleManagement = () => {
                 )}
               </div>
 
-              {/* Weekend Requirement */}
-              <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <input
-                  type="checkbox"
-                  id="weekendRequired"
-                  checked={roleForm.weekend_required}
-                  onChange={(e) => setRoleForm({ ...roleForm, weekend_required: e.target.checked })}
-                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <label htmlFor="weekendRequired" className="text-sm font-medium text-gray-900">
-                  Weekend Work Required
-                </label>
-                <p className="text-xs text-gray-600 ml-auto">If checked, employees can be assigned weekends</p>
-              </div>
-
               {/* Info Box */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <div className="flex gap-2">
@@ -599,9 +571,9 @@ const RoleManagement = () => {
                     <p className="font-semibold">Schedule Rules:</p>
                     <ul className="list-disc list-inside space-y-1 mt-1">
                       <li>Max 5 consecutive shifts per employee</li>
-                      <li>Weekend assignments only if enabled</li>
                       <li>Shifts over 4 hours require break time</li>
                       <li>Unavailability shifts auto-reassigned</li>
+                      <li>Weekend schedules managed via shift preferences</li>
                     </ul>
                   </div>
                 </div>

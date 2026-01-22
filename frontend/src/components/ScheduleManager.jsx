@@ -25,6 +25,8 @@ const ScheduleManager = ({ departmentId, employees = [], roles = [] }) => {
   const [selectedSchedule, setSelectedSchedule] = useState(null);
   const [selectedLeave, setSelectedLeave] = useState(null);
   const [selectedWeek, setSelectedWeek] = useState(getMonday(new Date()));
+  const [startDate, setStartDate] = useState(getMonday(new Date()));
+  const [endDate, setEndDate] = useState(getMonday(new Date()).split('-').map((x, i) => i === 2 ? parseInt(x) + 6 : x).join('-'));
 
   // Edit mode state
   const [editedSchedules, setEditedSchedules] = useState([]);
@@ -149,12 +151,20 @@ const ScheduleManager = ({ departmentId, employees = [], roles = [] }) => {
   const handleGenerateSchedule = async () => {
     setLoading(true);
     try {
-      const weekDates = getWeekDates(selectedWeek);
-      const startDate = weekDates[0];
-      const endDate = weekDates[6];
+      // Use custom dates if both are provided, otherwise use selectedWeek
+      let schedStartDate, schedEndDate;
+      
+      if (startDate && endDate) {
+        schedStartDate = startDate;
+        schedEndDate = endDate;
+      } else {
+        const weekDates = getWeekDates(selectedWeek);
+        schedStartDate = weekDates[0];
+        schedEndDate = weekDates[6];
+      }
 
-      console.log('Generating schedules for', startDate, 'to', endDate);
-      const response = await generateSchedule(startDate, endDate, false, departmentId);
+      console.log('Generating schedules for', schedStartDate, 'to', schedEndDate);
+      const response = await generateSchedule(schedStartDate, schedEndDate, false, departmentId);
       console.log('Generation response:', response);
 
       // ===== NEW: Check if confirmation required =====
@@ -166,7 +176,7 @@ const ScheduleManager = ({ departmentId, employees = [], roles = [] }) => {
         if (shouldRegenerate) {
           // Call again with regenerate=true flag
           setLoading(true);
-          const regenerateResponse = await generateSchedule(startDate, endDate, true, departmentId);
+          const regenerateResponse = await generateSchedule(schedStartDate, schedEndDate, true, departmentId);
           const scheduleCount = regenerateResponse.data?.schedules_created || 0;
           const feedback = regenerateResponse.data?.feedback || [];
 
@@ -669,19 +679,102 @@ const ScheduleManager = ({ departmentId, employees = [], roles = [] }) => {
       >
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              {t('selectWeekToGenerate')}
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              📅 Quick Period Selection
             </label>
-            <input
-              type="date"
-              value={selectedWeek}
-              onChange={(e) => setSelectedWeek(getMonday(new Date(e.target.value)))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-            />
-            <p className="text-xs text-gray-500 mt-2">
-              Week: {getWeekDates(selectedWeek)[0]} to {getWeekDates(selectedWeek)[6]}
-            </p>
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <Button 
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const today = new Date();
+                  const monday = getMonday(today);
+                  setSelectedWeek(monday);
+                }}
+                className="text-sm"
+              >
+                This Week
+              </Button>
+              <Button 
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const today = new Date();
+                  const nextWeekMonday = new Date(getMonday(today));
+                  nextWeekMonday.setDate(nextWeekMonday.getDate() + 7);
+                  setSelectedWeek(nextWeekMonday);
+                }}
+                className="text-sm"
+              >
+                Next Week
+              </Button>
+              <Button 
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const today = new Date();
+                  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+                  setStartDate(firstDay.toISOString().split('T')[0]);
+                  const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+                  setEndDate(lastDay.toISOString().split('T')[0]);
+                }}
+                className="text-sm"
+              >
+                This Month
+              </Button>
+              <Button 
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const today = new Date();
+                  const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+                  const firstDay = new Date(nextMonth.getFullYear(), nextMonth.getMonth(), 1);
+                  setStartDate(firstDay.toISOString().split('T')[0]);
+                  const lastDay = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0);
+                  setEndDate(lastDay.toISOString().split('T')[0]);
+                }}
+                className="text-sm"
+              >
+                Next Month
+              </Button>
+            </div>
           </div>
+
+          <div className="border-t pt-4">
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              📌 Or Enter Custom Date Range
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Start Date
+                </label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  End Date
+                </label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                />
+              </div>
+            </div>
+            {selectedWeek && (
+              <p className="text-xs text-gray-500 mt-2">
+                Week: {getWeekDates(selectedWeek)[0]} to {getWeekDates(selectedWeek)[6]}
+              </p>
+            )}
+          </div>
+
           <div className="flex gap-2 justify-end">
             <Button onClick={() => setShowWeekPicker(false)} variant="ghost">
               {t('cancel')}

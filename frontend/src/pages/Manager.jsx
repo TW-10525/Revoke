@@ -9,6 +9,7 @@ import Modal from '../components/common/Modal';
 import Table from '../components/common/Table';
 import RoleManagement from '../components/RoleManagement';
 import ScheduleManager from '../components/ScheduleManager';
+import ShiftPreferenceManager from '../components/ShiftPreferenceManager';
 import OvertimeApproval from '../components/OvertimeApproval';
 import CompOffManagement from '../components/CompOffManagement';
 import { useLanguage } from '../context/LanguageContext';
@@ -660,17 +661,8 @@ const ManagerRoles = ({ user, onRoleSwitch }) => {
     priority: 50,
     priority_percentage: 50,
     break_minutes: 60,
-    weekend_required: false,
     required_skills: [],
-    schedule_config: {
-      monday: true,
-      tuesday: true,
-      wednesday: true,
-      thursday: true,
-      friday: true,
-      saturday: false,
-      sunday: false
-    }
+    schedule_config: {}
   });
   const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
   const [shiftForm, setShiftForm] = useState({
@@ -752,17 +744,8 @@ const ManagerRoles = ({ user, onRoleSwitch }) => {
       priority: role.priority || 50,
       priority_percentage: role.priority_percentage || 50,
       break_minutes: role.break_minutes || 60,
-      weekend_required: role.weekend_required || false,
       required_skills: role.required_skills || [],
-      schedule_config: role.schedule_config || {
-        monday: true,
-        tuesday: true,
-        wednesday: true,
-        thursday: true,
-        friday: true,
-        saturday: false,
-        sunday: false
-      }
+      schedule_config: role.schedule_config || {}
     });
     setShowRoleModal(true);
   };
@@ -804,17 +787,8 @@ const ManagerRoles = ({ user, onRoleSwitch }) => {
         priority: 50,
         priority_percentage: 50,
         break_minutes: 60,
-        weekend_required: false,
         required_skills: [],
-        schedule_config: {
-          monday: true,
-          tuesday: true,
-          wednesday: true,
-          thursday: true,
-          friday: true,
-          saturday: false,
-          sunday: false
-        }
+        schedule_config: {}
       });
       loadRoles();
     } catch (err) {
@@ -1156,17 +1130,8 @@ const ManagerRoles = ({ user, onRoleSwitch }) => {
               priority: 50,
               priority_percentage: 50,
               break_minutes: 60,
-              weekend_required: false,
               required_skills: [],
-              schedule_config: {
-                monday: true,
-                tuesday: true,
-                wednesday: true,
-                thursday: true,
-                friday: true,
-                saturday: false,
-                sunday: false
-              }
+              schedule_config: {}
             });
           }}
           title={editingRole ? `${t('editRole')}: ${roleForm.name}` : t('createNewJobRole')}
@@ -1181,17 +1146,8 @@ const ManagerRoles = ({ user, onRoleSwitch }) => {
                   priority: 50,
                   priority_percentage: 50,
                   break_minutes: 60,
-                  weekend_required: false,
                   required_skills: [],
-                  schedule_config: {
-                    monday: true,
-                    tuesday: true,
-                    wednesday: true,
-                    thursday: true,
-                    friday: true,
-                    saturday: false,
-                    sunday: false
-                  }
+                  schedule_config: {}
                 });
               }}>
                 {t('cancel')}
@@ -1264,17 +1220,6 @@ const ManagerRoles = ({ user, onRoleSwitch }) => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                 />
               </div>
-              <div className="flex items-end">
-                <label className="flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={roleForm.weekend_required}
-                    onChange={(e) => setRoleForm({ ...roleForm, weekend_required: e.target.checked })}
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
-                  />
-                  <span className="ml-2 text-sm font-medium text-gray-700">{t('weekendRequired')}</span>
-                </label>
-              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t('requiredSkills')}</label>
@@ -1288,28 +1233,6 @@ const ManagerRoles = ({ user, onRoleSwitch }) => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                 placeholder={t('exampleSkills')}
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">{t('operatingDays')}</label>
-              <div className="grid grid-cols-4 gap-3">
-                {days.map((day) => (
-                  <label key={day} className="flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={roleForm.schedule_config[day] || false}
-                      onChange={(e) => setRoleForm({
-                        ...roleForm,
-                        schedule_config: {
-                          ...roleForm.schedule_config,
-                          [day]: e.target.checked
-                        }
-                      })}
-                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
-                    />
-                    <span className="ml-2 text-sm text-gray-700 capitalize">{t(day)}</span>
-                  </label>
-                ))}
-              </div>
             </div>
           </form>
         </Modal>
@@ -1497,6 +1420,7 @@ const ManagerSchedules = ({ user, onRoleSwitch }) => {
   const [employees, setEmployees] = useState([]);
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('schedules');
 
   useEffect(() => {
     loadData();
@@ -1531,15 +1455,50 @@ const ManagerSchedules = ({ user, onRoleSwitch }) => {
     );
   }
 
+  // Get all shifts from all roles
+  const allShifts = roles.flatMap(role => role.shifts || []);
+
   return (
     <div>
       <Header title={t('scheduleManagement')} subtitle={t('scheduleSubtitle')} user={user} onRoleSwitch={onRoleSwitch} />
       <div className="p-6">
-        <ScheduleManager
-          departmentId={user?.manager_department_id}
-          employees={employees}
-          roles={roles}
-        />
+        {/* Tabs */}
+        <div className="flex gap-2 mb-6 border-b border-gray-200">
+          <button
+            onClick={() => setActiveTab('schedules')}
+            className={`px-4 py-3 font-medium border-b-2 transition ${
+              activeTab === 'schedules'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Schedule View
+          </button>
+          <button
+            onClick={() => setActiveTab('preferences')}
+            className={`px-4 py-3 font-medium border-b-2 transition ${
+              activeTab === 'preferences'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Shift Preferences
+          </button>
+        </div>
+
+        {/* Content */}
+        {activeTab === 'schedules' ? (
+          <ScheduleManager
+            departmentId={user?.manager_department_id}
+            employees={employees}
+            roles={roles}
+          />
+        ) : (
+          <ShiftPreferenceManager
+            departmentId={user?.manager_department_id}
+            shifts={allShifts}
+          />
+        )}
       </div>
     </div>
   );

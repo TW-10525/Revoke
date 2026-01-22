@@ -18,7 +18,9 @@ const ShiftManagement = ({ currentUser, departmentId }) => {
     start_time: '09:00',
     end_time: '17:00',
     priority: 50,
-    schedule_config: {}
+    schedule_config: {},
+    from_date: '',
+    to_date: ''
   });
 
   useEffect(() => {
@@ -64,7 +66,9 @@ const ShiftManagement = ({ currentUser, departmentId }) => {
       start_time: '09:00',
       end_time: '17:00',
       priority: 50,
-      schedule_config: {}
+      schedule_config: {},
+      from_date: '',
+      to_date: ''
     });
     setEditingShift(null);
     setShowForm(true);
@@ -100,7 +104,9 @@ const ShiftManagement = ({ currentUser, departmentId }) => {
       start_time: shift.start_time || '09:00',
       end_time: shift.end_time || '17:00',
       priority: shift.priority,
-      schedule_config: normalizedConfig
+      schedule_config: normalizedConfig,
+      from_date: shift.from_date || '',
+      to_date: shift.to_date || ''
     });
     setEditingShift(shift.id);
     setShowForm(true);
@@ -278,6 +284,33 @@ const ShiftManagement = ({ currentUser, departmentId }) => {
               />
               <p className="text-xs text-gray-500 mt-1">Higher priority = more employees assigned</p>
             </div>
+          </div>
+
+          {/* Date Range Configuration */}
+          <div className="space-y-3 bg-white p-4 rounded border">
+            <h4 className="font-medium">📅 Date Range (Optional)</h4>
+            <p className="text-sm text-gray-600">Specify start and end dates for this shift:</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">From Date</label>
+                <input
+                  type="date"
+                  value={shiftForm.from_date}
+                  onChange={(e) => setShiftForm({ ...shiftForm, from_date: e.target.value })}
+                  className="w-full border rounded px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">To Date</label>
+                <input
+                  type="date"
+                  value={shiftForm.to_date}
+                  onChange={(e) => setShiftForm({ ...shiftForm, to_date: e.target.value })}
+                  className="w-full border rounded px-3 py-2"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-gray-500">Leave empty to use weekly schedule, or specify dates for a date range shift</p>
           </div>
 
           {/* Schedule Configuration */}

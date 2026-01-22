@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, X, RefreshCw } from 'lucide-react';
-import { format, addDays, startOfWeek, isToday, addWeeks, subWeeks, parseISO } from 'date-fns';
+import { ChevronLeft, ChevronRight, X, RefreshCw, Calendar } from 'lucide-react';
+import { format, addDays, startOfWeek, isToday, addWeeks, subWeeks, parseISO, endOfWeek } from 'date-fns';
 
 const ManagerScheduleView = ({ user }) => {
   const [schedule, setSchedule] = useState({});
@@ -13,6 +13,9 @@ const ManagerScheduleView = ({ user }) => {
   const [selectedLeave, setSelectedLeave] = useState(null);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [customStartDate, setCustomStartDate] = useState(format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
+  const [customEndDate, setCustomEndDate] = useState(format(endOfWeek(startOfWeek(new Date(), { weekStartsOn: 1 }), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
 
   const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const weekDates = Array.from({ length: 7 }, (_, i) => addDays(currentWeekStart, i));
@@ -252,32 +255,92 @@ const ManagerScheduleView = ({ user }) => {
     <div className="space-y-6">
       {/* Week Navigation */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-4">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-4 flex-1">
             <button 
               onClick={() => setCurrentWeekStart(subWeeks(currentWeekStart, 1))}
               className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              title="Previous week"
             >
               <ChevronLeft size={20} />
             </button>
-            <h2 className="text-xl font-bold text-gray-900 min-w-64">
-              Week of {format(currentWeekStart, 'MMM dd, yyyy')}
-            </h2>
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">
+                Schedule Management
+              </h2>
+              <p className="text-sm text-gray-600">
+                Week of {format(currentWeekStart, 'yyyy-MM-dd')} to {format(addDays(currentWeekStart, 6), 'yyyy-MM-dd')}
+              </p>
+            </div>
             <button 
               onClick={() => setCurrentWeekStart(addWeeks(currentWeekStart, 1))}
               className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              title="Next week"
             >
               <ChevronRight size={20} />
             </button>
           </div>
-          <button
-            onClick={loadData}
-            className="flex items-center gap-2 px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors"
-            title="Refresh schedule data"
-          >
-            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowDatePicker(!showDatePicker)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors font-medium ${showDatePicker ? 'bg-amber-600 text-white' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'}`}
+            >
+              <Calendar size={18} />
+              Select Date
+            </button>
+            <button
+              onClick={loadData}
+              className="flex items-center gap-2 px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors"
+              title="Refresh schedule data"
+            >
+              <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {/* Date Range Picker */}
+        {showDatePicker && (
+          <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg mb-4">
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">From Date</label>
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">To Date</label>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+              <div className="flex items-end gap-2">
+                <button
+                  onClick={() => {
+                    setCurrentWeekStart(new Date(customStartDate));
+                    setShowDatePicker(false);
+                  }}
+                  className="flex-1 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors font-medium"
+                >
+                  View
+                </button>
+                <button
+                  onClick={() => setShowDatePicker(false)}
+                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         </div>
 
         {/* Calendar Table */}

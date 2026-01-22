@@ -103,7 +103,7 @@ export const deleteEmployee = (id, hardDelete = false) =>
 export const createRole = (roleData) => api.post('/roles', roleData);
 export const listRoles = (departmentId = null) => {
   if (departmentId) {
-    return api.get(`/roles?department_id=${departmentId}`);
+    return api.get('/roles', { params: { department_id: departmentId } });
   }
   return api.get('/roles');
 };
