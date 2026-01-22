@@ -704,6 +704,14 @@ const ManagerRoles = ({ user, onRoleSwitch }) => {
     }
   }, [showArchivedShifts, selectedRole]);
 
+  const renderTemplate = (key, { name } = {}) => {
+    const template = t(key);
+    if (name && typeof template === 'string') {
+      return template.replace('{{name}}', name);
+    }
+    return template;
+  };
+
   const loadRoles = async () => {
     try {
       setLoading(true);
@@ -1484,8 +1492,8 @@ const ManagerRoles = ({ user, onRoleSwitch }) => {
             )}
             <p className="text-gray-700">
               {deleteTarget?.type === 'role' 
-                ? t('confirmDeleteRoleMessage', { name: deleteTarget?.name })
-                : t('confirmDeleteShiftMessage', { name: deleteTarget?.name })}
+                ? renderTemplate('confirmDeleteRoleMessage', { name: deleteTarget?.name })
+                : renderTemplate('confirmDeleteShiftMessage', { name: deleteTarget?.name })}
             </p>
             <p className="text-sm text-gray-600">
               {deleteTarget?.type === 'role'
@@ -1568,7 +1576,7 @@ function getWeekDates() {
 }
 
 const ManagerLeaves = ({ user, onRoleSwitch }) => {
-  const { t } = useLanguage();
+  const { t, formatDate } = useLanguage();
   const [leaves, setLeaves] = useState([]);
   const [selectedLeave, setSelectedLeave] = useState(null);
   const [showModal, setShowModal] = useState(false);
@@ -1980,8 +1988,8 @@ const ManagerLeaves = ({ user, onRoleSwitch }) => {
         );
       }
     },
-    { header: t('startDate') || 'Start Date', render: (row) => format(new Date(row.start_date), 'MMM dd, yyyy') },
-    { header: t('endDate') || 'End Date', render: (row) => format(new Date(row.end_date), 'MMM dd, yyyy') },
+    { header: t('startDate') || 'Start Date', render: (row) => formatDate(row.start_date) },
+    { header: t('endDate') || 'End Date', render: (row) => formatDate(row.end_date) },
     { header: t('reason') || 'Reason', accessor: 'reason' },
     { header: t('status') || 'Status', render: (row) => getStatusBadge(row.status) },
     {
@@ -2008,10 +2016,10 @@ const ManagerLeaves = ({ user, onRoleSwitch }) => {
           <button
             onClick={() => handleReview(row, 'revoke')}
             className="text-red-600 hover:text-red-800 flex items-center gap-1"
-            title="Revoke approval"
+            title={t('revokeApproval')}
           >
             <Trash2 className="w-5 h-5" />
-            <span className="text-sm">Revoke</span>
+            <span className="text-sm">{t('revoke')}</span>
           </button>
         ) : (
           <span className="text-gray-400 text-sm">{t('reviewed')}</span>
@@ -2034,7 +2042,7 @@ const ManagerLeaves = ({ user, onRoleSwitch }) => {
   const modalActionLabel = action === 'approve'
     ? t('approveLeavRequest')
     : action === 'revoke'
-    ? 'Revoke Leave Request'
+    ? t('revokeLeaveRequest')
     : t('rejectLeavRequest');
 
   return (
@@ -2605,8 +2613,7 @@ const ManagerLeaves = ({ user, onRoleSwitch }) => {
               <div>
                 <p className="text-sm text-gray-500">{t('leavePeriod')}</p>
                 <p className="font-medium">
-                  {format(new Date(selectedLeave.start_date), 'MMM dd, yyyy')} -{' '}
-                  {format(new Date(selectedLeave.end_date), 'MMM dd, yyyy')}
+                  {formatDate(selectedLeave.start_date)} - {formatDate(selectedLeave.end_date)}
                 </p>
               </div>
               <div>
@@ -3149,7 +3156,7 @@ const ManagerAttendance = ({ user, onRoleSwitch }) => {
 };
 
 const ManagerMessages = ({ user, onRoleSwitch }) => {
-  const { t } = useLanguage();
+  const { t, formatDate } = useLanguage();
   const [messages, setMessages] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [showModal, setShowModal] = useState(false);
@@ -3337,7 +3344,7 @@ const ManagerMessages = ({ user, onRoleSwitch }) => {
                       </div>
                       <div className="flex items-center space-x-2 ml-4">
                         <span className="text-xs text-gray-500">
-                          {format(new Date(msg.created_at), 'MMM dd, HH:mm')}
+                          {formatDate(msg.created_at, { withTime: true })}
                         </span>
                         <button
                           onClick={() => handleDelete(msg.id)}

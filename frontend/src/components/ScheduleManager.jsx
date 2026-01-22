@@ -9,7 +9,7 @@ import { useLanguage } from '../context/LanguageContext';
 import api from '../services/api';
 
 const ScheduleManager = ({ departmentId, employees = [], roles = [] }) => {
-  const { t } = useLanguage();
+  const { t, formatDate } = useLanguage();
   
   // View/Edit Mode
   const [viewMode, setViewMode] = useState('view');
@@ -787,7 +787,7 @@ const ScheduleManager = ({ departmentId, employees = [], roles = [] }) => {
               <div>
                 <p className="text-sm text-gray-600 font-semibold">{t('dateRange')}</p>
                 <p className="text-lg text-gray-900 font-bold">
-                  {selectedLeave.start_date ? format(parseISO(selectedLeave.start_date), 'MMM dd, yyyy') : 'N/A'} to {selectedLeave.end_date ? format(parseISO(selectedLeave.end_date), 'MMM dd, yyyy') : 'N/A'}
+                  {selectedLeave.start_date ? formatDate(selectedLeave.start_date) : 'N/A'} to {selectedLeave.end_date ? formatDate(selectedLeave.end_date) : 'N/A'}
                 </p>
               </div>
 

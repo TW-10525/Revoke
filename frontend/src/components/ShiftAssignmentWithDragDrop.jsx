@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, X, Copy } from 'lucide-react';
 import { format, addDays, startOfWeek } from 'date-fns';
+import { useLanguage } from '../context/LanguageContext';
 
 const ShiftAssignmentWithDragDrop = ({ 
   employees = [], 
@@ -10,6 +11,7 @@ const ShiftAssignmentWithDragDrop = ({
   unavailability = [], 
   onShiftAssigned = () => {} 
 }) => {
+  const { formatDate } = useLanguage();
   const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
   const [draggedShift, setDraggedShift] = useState(null);
   const [validationError, setValidationError] = useState(null);
@@ -288,7 +290,7 @@ const ShiftAssignmentWithDragDrop = ({
                     style={{ minWidth: '160px' }}
                   >
                     <div className="text-sm">{daysOfWeek[idx]}</div>
-                    <div className="text-xs text-gray-600">{format(date, 'MMM dd')}</div>
+                    <div className="text-xs text-gray-600">{formatDate(date)}</div>
                   </td>
                 ))}
               </tr>

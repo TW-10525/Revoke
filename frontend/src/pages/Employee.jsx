@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from 'date-fns';
-import { ja } from 'date-fns/locale';
 import Sidebar from '../components/layout/Sidebar';
 import Header from '../components/layout/Header';
 import Card from '../components/common/Card';
@@ -380,7 +379,7 @@ const EmployeeCheckIn = ({ user, onRoleSwitch }) => {
 };
 
 const EmployeeSchedule = ({ onRoleSwitch }) => {
-  const { t, language } = useLanguage();
+  const { t, formatDate } = useLanguage();
   const [schedules, setSchedules] = useState([]);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [loading, setLoading] = useState(true);
@@ -501,7 +500,7 @@ const EmployeeSchedule = ({ onRoleSwitch }) => {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="font-semibold text-gray-900">
-                          {format(new Date(schedule.date + 'T00:00:00'), 'EEEE, MMMM dd, yyyy', { locale: language === 'ja' ? ja : undefined })}
+                          {formatDate(schedule.date, { long: true })}
                         </p>
                         <p className="text-sm text-gray-600 mt-1">
                           {getTimeDisplay(schedule)}
@@ -533,7 +532,7 @@ const EmployeeSchedule = ({ onRoleSwitch }) => {
 };
 
 const EmployeeLeaves = ({ user, onRoleSwitch }) => {
-  const { t, language } = useLanguage();
+  const { t, formatDate, translateMessage } = useLanguage();
   const [leaves, setLeaves] = useState([]);
   const [leaveStats, setLeaveStats] = useState(null);
   const [showModal, setShowModal] = useState(false);
@@ -802,8 +801,7 @@ const EmployeeLeaves = ({ user, onRoleSwitch }) => {
                         {getStatusBadge(leave.status)}
                       </div>
                       <p className="text-sm text-gray-600 mb-1">
-                        {format(new Date(leave.start_date), 'MMM dd, yyyy', { locale: language === 'ja' ? ja : undefined })} -{' '}
-                        {format(new Date(leave.end_date), 'MMM dd, yyyy', { locale: language === 'ja' ? ja : undefined })}
+                        {formatDate(leave.start_date)} - {formatDate(leave.end_date)}
                       </p>
                       <p className="text-sm text-gray-700">{leave.reason}</p>
                       {leave.review_notes && (
@@ -849,7 +847,7 @@ const EmployeeLeaves = ({ user, onRoleSwitch }) => {
           {error && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start">
               <AlertCircle className="w-5 h-5 text-red-500 mr-2 flex-shrink-0 mt-0.5" />
-              <span className="text-sm text-red-700">{error}</span>
+              <span className="text-sm text-red-700">{translateMessage(error)}</span>
             </div>
           )}
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -934,7 +932,7 @@ const EmployeeLeaves = ({ user, onRoleSwitch }) => {
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <p className="text-sm text-gray-700">
                   {t('requestSummaryLabel')} {formData.duration_type.startsWith('half_day') ? t('halfDay') : t('fullDayEntireDay')} {formData.leave_type} leave 
-                  on {new Date(formData.start_date).toLocaleDateString()}
+                  on {formatDate(formData.start_date)}
                   {formData.duration_type === 'half_day_morning' && ` (${t('morningLabel')})`}
                   {formData.duration_type === 'half_day_afternoon' && ` (${t('afternoonLabel')})`}
                 </p>
@@ -948,7 +946,7 @@ const EmployeeLeaves = ({ user, onRoleSwitch }) => {
 };
 
 const EmployeeAttendance = ({ onRoleSwitch }) => {
-  const { t, language } = useLanguage();
+  const { t, language, formatDate } = useLanguage();
   const [attendance, setAttendance] = useState([]);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [loading, setLoading] = useState(true);
@@ -1141,7 +1139,7 @@ const EmployeeAttendance = ({ onRoleSwitch }) => {
                   {attendance.map((record) => (
                     <tr key={record.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {format(new Date(record.date + 'T00:00:00'), 'MMM dd, yyyy', { locale: language === 'ja' ? ja : undefined })}
+                        {formatDate(record.date)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         {record.schedule ? `${record.schedule.start_time} - ${record.schedule.end_time}` : '-'}
@@ -1198,7 +1196,7 @@ const EmployeeAttendance = ({ onRoleSwitch }) => {
 };
 
 const EmployeeMessages = ({ onRoleSwitch }) => {
-  const { t, language } = useLanguage();
+  const { t, formatDate } = useLanguage();
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -1305,7 +1303,7 @@ const EmployeeMessages = ({ onRoleSwitch }) => {
                     </div>
                     <div className="flex items-center space-x-2 ml-4">
                       <span className="text-xs text-gray-500">
-                        {format(new Date(msg.created_at), 'MMM dd, HH:mm', { locale: language === 'ja' ? ja : undefined })}
+                        {formatDate(msg.created_at, { withTime: true })}
                       </span>
                       <button
                         onClick={() => handleMarkAsRead(msg.id, msg.is_read)}
@@ -1472,7 +1470,7 @@ const EmployeeRequests = ({ user, onRoleSwitch }) => {
         {error && (
           <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start">
             <AlertCircle className="w-5 h-5 text-red-600 mr-3 flex-shrink-0 mt-0.5" />
-            <span className="text-red-800">{error}</span>
+            <span className="text-red-800">{translateMessage(error)}</span>
           </div>
         )}
 
