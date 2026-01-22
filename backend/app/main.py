@@ -2205,14 +2205,13 @@ async def create_employee(
         user_id = user.id
     
     await db.commit()
-<<<<<<< HEAD
 
     # Reload with department eagerly loaded to avoid async lazy-load errors in response serialization
     try:
         result = await db.execute(
             select(Employee)
             .options(selectinload(Employee.department))
-            .filter(Employee.id == employee.id)
+            .where(Employee.id == employee.id)
         )
         employee = result.scalar_one_or_none()
     except Exception:
@@ -2226,16 +2225,6 @@ async def create_employee(
             status_code=500,
             detail="Employee created, but the server couldn't load the saved record for the response. Please refresh and try again."
         )
-=======
-    
-    # Reload with eager loading
-    result = await db.execute(
-        select(Employee)
-        .where(Employee.id == employee.id)
-        .options(selectinload(Employee.department))
-    )
-    employee = result.scalar_one()
->>>>>>> majorv1/feature/attendance-shift
     
     # Log the action
     try:
@@ -2367,26 +2356,13 @@ async def update_employee(
     employee.updated_at = datetime.utcnow()
     db.add(employee)
     await db.commit()
-<<<<<<< HEAD
 
     # Reload with department eagerly loaded to avoid async lazy-load errors in response serialization
-=======
-    
-    # Re-query with eager loading
-    result = await db.execute(
-        select(Employee)
-        .where(Employee.id == employee_id)
-        .options(selectinload(Employee.department))
-    )
-    employee = result.scalar_one()
-    
-    # Log the action
->>>>>>> majorv1/feature/attendance-shift
     try:
         result = await db.execute(
             select(Employee)
             .options(selectinload(Employee.department))
-            .filter(Employee.id == employee.id)
+            .where(Employee.id == employee.id)
         )
         employee = result.scalar_one_or_none()
     except Exception:
@@ -6157,25 +6133,13 @@ async def create_comp_off_request(
     db.add(comp_off_request)
     await db.commit()
     
-<<<<<<< HEAD
     # Reload with eager loading of employee + department to avoid lazy loading in response
     refreshed_result = await db.execute(
         select(CompOffRequest)
         .options(selectinload(CompOffRequest.employee).selectinload(Employee.department))
-        .filter(CompOffRequest.id == comp_off_request.id)
+        .where(CompOffRequest.id == comp_off_request.id)
     )
     comp_off_request = refreshed_result.scalar_one_or_none() or comp_off_request
-=======
-    # Reload with eager loading of employee and department relationships
-    result = await db.execute(
-        select(CompOffRequest)
-        .where(CompOffRequest.id == comp_off_request.id)
-        .options(
-            selectinload(CompOffRequest.employee).selectinload(Employee.department)
-        )
-    )
-    comp_off_request = result.scalar_one()
->>>>>>> majorv1/feature/attendance-shift
     
     # Send notification to manager if employee created the request
     if current_user.user_type == UserType.EMPLOYEE and comp_off_request.employee and comp_off_request.employee.department_id:
@@ -9793,14 +9757,10 @@ async def approve_overtime_request(
     # Create notification for employee
     if emp_user:
         notification_title = f"✅ Overtime Request Approved"
-<<<<<<< HEAD
         notification_message = (
             f"Your overtime request for {ot_request.request_date} "
             f"({ot_request.request_hours} hours) has been approved."
         )
-=======
-        notification_message = f"Your overtime request for {ot_request.request_date} ({ot_request.request_hours} hours) has been approved."
->>>>>>> majorv1/feature/attendance-shift
         await create_notification(
             user_id=emp_user.id,
             title=notification_title,
@@ -9859,14 +9819,10 @@ async def reject_overtime_request(
     # Create notification for employee
     if emp_user:
         notification_title = f"❌ Overtime Request Rejected"
-<<<<<<< HEAD
         notification_message = (
             f"Your overtime request for {ot_request.request_date} "
             f"({ot_request.request_hours} hours) has been rejected."
         )
-=======
-        notification_message = f"Your overtime request for {ot_request.request_date} ({ot_request.request_hours} hours) has been rejected."
->>>>>>> majorv1/feature/attendance-shift
         if rejection_data.get("approval_notes"):
             notification_message += f" Reason: {rejection_data.get('approval_notes')}"
         await create_notification(
